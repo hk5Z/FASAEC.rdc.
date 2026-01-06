@@ -1,0 +1,7 @@
+{
+  "name": "ArchiPro RH & Paie",
+  "description": "A professional HR and Payroll management system with dual User/Admin interfaces, featuring security filtering for unknown agents and AI-powered payroll insights.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
