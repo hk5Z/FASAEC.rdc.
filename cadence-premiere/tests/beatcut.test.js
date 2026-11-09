@@ -28,7 +28,7 @@ function collection(arr, countKey = 'numItems') {
   return new Proxy({}, { get: (t, k) => (k === countKey ? arr.length : (/^\d+$/.test(String(k)) ? arr[Number(k)] : undefined)) });
 }
 
-function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true, rushAudio = true, musicVideo = false } = {}) {
+function makeTimeline({ cloneActivates = true, openWorks = true, razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true, rushAudio = true, musicVideo = false } = {}) {
   let id = 1;
   const calls = [];
   const pi = name => ({ nodeId: 'pi-' + name, name, getMediaPath: () => 'C:\\media\\' + name });
@@ -61,7 +61,13 @@ function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, 
     getSelection: () => [...video.flat(), ...audio.flat()].filter(c => c.selected),
     getSettings: () => ({ videoFrameRate: new Time(1 / FPS) }),
     markers: { createMarker(t) { const m = { start: t }; markers.push(m); return m; }, get numMarkers() { return markers.length; } },
-    clone() { calls.push(['clone']); return true; }
+    clone() {
+      // Comportement observé dans Premiere : la copie devient la séquence active.
+      const copy = { name: seq.name + ' Copie', sequenceID: 'seq-copy' };
+      seqs.push(copy); calls.push(['clone']);
+      if (cloneActivates) project.activeSequence = copy;
+      return true;
+    }
   };
   const qeTrack = t => ({
     razor(tc) {
@@ -75,8 +81,19 @@ function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, 
       arr.splice(arr.indexOf(c) + 1, 0, right);
     }
   });
+  const seqs = [seq];
+  const project = {
+    activeSequence: seq, rootItem: { children: collection([]) }, sequences: collection(seqs, 'numSequences'),
+    openSequence(sid) {
+      calls.push(['openSequence', sid]);
+      const s = seqs.find(x => String(x.sequenceID) === String(sid));
+      if (!s || !openWorks) return false;
+      project.activeSequence = s;
+      return true;
+    }
+  };
   const ctx = vm.createContext({
-    app: { project: { activeSequence: seq, rootItem: { children: collection([]) } }, enableQE() {} },
+    app: { project, enableQE() {} },
     qe: { project: { getActiveSequence: () => ({ getVideoTrackAt: qeTrack }) } },
     Time, File: function () {}, Folder: { fs: 'Windows' }, ProjectItemType: { BIN: 2 }
   });
@@ -113,6 +130,8 @@ test('Beat Cut : sauvegarde, coupes au rythme, un seul angle visible par segment
   const r = w.call('beatCutMulticam', { sequenceId: ctx.sequence.id, tracks: ctx.tracks.map(t => t.index), cuts: plan.cuts, segments: plan.segments, markers: true });
   assert.equal(r.ok, true, r.error);
   assert.equal(w.calls[0][0], 'clone', 'sauvegarde avant toute coupe');
+  assert.deepEqual(w.calls[1], ['openSequence', 'seq-1'], 'séquence d’origine rouverte après la copie');
+  assert.equal(r.data.backupName, 'Clip Copie');
   assert.equal(r.data.razored, plan.cuts.length * 3);
   assert.equal(r.data.skipped, 0);
   assert.equal(r.data.missing, 0);
@@ -163,4 +182,21 @@ test('Un clip audio sélectionné est prioritaire', () => {
   const r = makeTimeline({ selectAudio: true }).call('getBeatCutContext');
   assert.equal(r.data.music.name, 'musique.wav');
   assert.equal(r.data.musicNote, null);
+});
+
+test('Sauvegarde : si Premiere ne rouvre pas la séquence d’origine, rien n’est coupé', () => {
+  const w = makeTimeline({ openWorks: false });
+  const r = w.call('beatCutMulticam', { sequenceId: 'seq-1', tracks: [0, 1, 2], cuts: [2, 4], segments: [] });
+  assert.match(r.error, /Copie de sauvegarde créée \(« Clip Copie »\), mais Premiere n'a pas pu rouvrir la séquence « Clip »/);
+  assert.equal(w.calls.filter(c => c[0] === 'razor').length, 0);
+});
+
+test('Sauvegarde : fonctionne aussi si la copie ne devient pas active', () => {
+  const w = makeTimeline({ cloneActivates: false });
+  const ctx = w.call('getBeatCutContext').data;
+  const plan = D.planMulticam({ beats: [1, 2, 3, 4], range: ctx.range, tracks: ctx.tracks, every: 1, fps: 25 });
+  const r = w.call('beatCutMulticam', { sequenceId: 'seq-1', tracks: [0, 1, 2], cuts: plan.cuts, segments: plan.segments });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(w.calls.filter(c => c[0] === 'openSequence').length, 0);
+  assert.equal(r.data.missing, 0);
 });

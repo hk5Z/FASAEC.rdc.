@@ -252,7 +252,7 @@
       }
       return 'Beat Cut terminé dans « ' + r.sequence + ' » : ' + r.razored + ' coupes, ' + r.removed + ' morceaux retirés' +
         (r.markers ? ', ' + r.markers + ' marqueurs' : '') + '.' + (r.skipped ? '\n' + r.skipped + ' morceau(x) laissé(s) en place (hors segment).' : '') +
-        (r.backup ? '\nCopie de sauvegarde créée. Lancez la lecture pour vérifier.' : '') + simNote();
+        (r.backup ? '\nCopie de sauvegarde créée' + (r.backupName ? ' : « ' + r.backupName + ' »' : '') + '. Lancez la lecture pour vérifier.' : '') + simNote();
     });
   }
 

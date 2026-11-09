@@ -8,7 +8,7 @@
  */
 var cadence = (function () {
     var TICKS_PER_SECOND = 254016000000;
-    var VERSION = '0.2.1';
+    var VERSION = '0.2.2';
     var IMPORT_EXTENSIONS = ['mp4', 'm4v', 'mov', 'mxf', 'avi', 'mts', 'm2ts', 'mpg', 'mpeg', 'wmv', '3gp',
         'wav', 'mp3', 'aac', 'm4a', 'aif', 'aiff', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'gif', 'bmp'];
 
@@ -369,6 +369,18 @@ var cadence = (function () {
     }
 
     // ------------------------------------------------------------ Beat Cut multicam
+    function sequenceNames() {
+        var out = [], s = app.project.sequences, i;
+        for (i = 0; i < s.numSequences; i++) { out.push(s[i].name); }
+        return out;
+    }
+
+    function newSequenceName(before) {
+        var now = sequenceNames(), i;
+        for (i = 0; i < now.length; i++) { if (!contains(before, now[i])) { return now[i]; } }
+        return now.length > before.length ? now[now.length - 1] : null;
+    }
+
     function frameSeconds(seq) {
         var f = seq.getSettings().videoFrameRate;
         return f && f.seconds > 0 ? f.seconds : 1 / 25;
@@ -469,13 +481,22 @@ var cadence = (function () {
         for (i = 0; i < tracks.length; i++) {
             if (tracks[i] < 0 || tracks[i] >= seq.videoTracks.numTracks) { fail('Piste vid\u00e9o V' + (tracks[i] + 1) + ' introuvable.'); }
         }
-        var backup = false;
+        var backup = false, backupName = null;
         if (a.backup !== false) {
+            var namesBefore = sequenceNames();
             backup = !!seq.clone();
             if (!backup) { fail('La copie de sauvegarde de la s\u00e9quence a \u00e9chou\u00e9 : rien n\'a \u00e9t\u00e9 modifi\u00e9.'); }
+            backupName = newSequenceName(namesBefore);
+            // Premiere peut activer la copie juste apr\u00e8s clone() : on rouvre la s\u00e9quence d'origine (API officielle).
             if (!app.project.activeSequence || String(app.project.activeSequence.sequenceID) !== id) {
-                fail('La s\u00e9quence active a chang\u00e9 apr\u00e8s la sauvegarde : rien n\'a \u00e9t\u00e9 coup\u00e9.');
+                app.project.openSequence(id);
             }
+            if (!app.project.activeSequence || String(app.project.activeSequence.sequenceID) !== id) {
+                fail('Copie de sauvegarde cr\u00e9\u00e9e' + (backupName ? ' (\u00ab ' + backupName + ' \u00bb)' : '') +
+                    ', mais Premiere n\'a pas pu rouvrir la s\u00e9quence \u00ab ' + seq.name + ' \u00bb : rien n\'a \u00e9t\u00e9 coup\u00e9. ' +
+                    'Ouvrez-la, s\u00e9lectionnez les rushes et relancez.');
+            }
+            seq = app.project.activeSequence;
         }
         var half = frameSeconds(seq) / 2, before = countClips(seq), razored = 0, expected = [];
         app.enableQE();
@@ -524,7 +545,7 @@ var cadence = (function () {
             }
         }
         return {
-            backup: backup, razored: razored, missing: missing, removed: toRemove.length, skipped: skipped, markers: markers,
+            backup: backup, backupName: backupName, razored: razored, missing: missing, removed: toRemove.length, skipped: skipped, markers: markers,
             clipsBefore: before, clipsAfter: countClips(seq), sequence: seq.name
         };
     }
