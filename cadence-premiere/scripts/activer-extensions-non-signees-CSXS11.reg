@@ -1,0 +1,5 @@
+Windows Registry Editor Version 5.00
+
+; Autorise les extensions CEP 11 non signees (Premiere Pro 23.x)
+[HKEY_CURRENT_USER\Software\Adobe\CSXS.11]
+"PlayerDebugMode"="1"
