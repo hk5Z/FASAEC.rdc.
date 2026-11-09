@@ -28,7 +28,7 @@ function collection(arr, countKey = 'numItems') {
   return new Proxy({}, { get: (t, k) => (k === countKey ? arr.length : (/^\d+$/.test(String(k)) ? arr[Number(k)] : undefined)) });
 }
 
-function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true } = {}) {
+function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true, rushAudio = true, musicVideo = false } = {}) {
   let id = 1;
   const calls = [];
   const pi = name => ({ nodeId: 'pi-' + name, name, getMediaPath: () => 'C:\\media\\' + name });
@@ -47,8 +47,8 @@ function makeTimeline({ razorWorks = true, selectAudio = false, rushTracks = 3, 
     if (t < rushTracks) arr.push(item('MVI_00' + (33 + t) + '.MP4', 'Video', 0, 12, pi('rush' + t), arr));
     video.push(arr);
   }
-  if (withMusic) audio[0].push(item('musique.wav', 'Audio', 0, 12, pi('musique'), audio[0]));
-  audio[1].push(item('MVI_0033.MP4', 'Audio', 0, 12, pi('rush0'), audio[1])); // son du rush : à ignorer
+  if (withMusic) audio[0].push(item(musicVideo ? 'musique_clip.mp4' : 'musique.wav', 'Audio', 0, 12, pi(musicVideo ? 'rush2' : 'musique'), audio[0]));
+  if (rushAudio) audio[1].push(item('MVI_0033.MP4', 'Audio', 0, 12, pi('rush0'), audio[1])); // son d'un rush : dernier recours
   video.forEach(arr => arr.forEach(c => { c.selected = true; }));
   if (selectAudio) audio[0][0].selected = true;
 
@@ -102,7 +102,7 @@ test('Contexte : messages clairs (pas de rush, une seule piste, pas de musique)'
   none.video.flat().forEach(c => { c.selected = false; });
   assert.match(none.call('getBeatCutContext').error, /Aucun rush sélectionné/);
   assert.match(makeTimeline({ rushTracks: 1 }).call('getBeatCutContext').error, /au moins 2 pistes vidéo/);
-  assert.match(makeTimeline({ withMusic: false }).call('getBeatCutContext').error, /Aucune musique trouvée/);
+  assert.match(makeTimeline({ withMusic: false, rushAudio: false }).call('getBeatCutContext').error, /Aucun clip audio en face des rushes.*A1 : 0 clip\(s\), A2 : 0 clip/);
 });
 
 test('Beat Cut : sauvegarde, coupes au rythme, un seul angle visible par segment, musique intacte', () => {
@@ -143,4 +143,24 @@ test('Beat Cut : refus si la séquence active a changé ou si une seule piste', 
   const w = makeTimeline();
   assert.match(w.call('beatCutMulticam', { sequenceId: 'autre', tracks: [0, 1], cuts: [1], segments: [] }).error, /séquence active a changé/);
   assert.match(w.call('beatCutMulticam', { sequenceId: 'seq-1', tracks: [0], cuts: [1], segments: [] }).error, /Au moins 2 pistes/);
+});
+
+test('Musique = fichier vidéo dont l’image est sélectionnée avec les rushes (cas réel signalé)', () => {
+  const r = makeTimeline({ musicVideo: true }).call('getBeatCutContext');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.data.music.name, 'musique_clip.mp4');
+  assert.match(r.data.musicNote, /image est aussi un angle \(V3\)/);
+});
+
+test('Sans fichier de musique séparé : le son d’un rush est utilisé, avec avertissement', () => {
+  const r = makeTimeline({ withMusic: false }).call('getBeatCutContext');
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.data.music.name, 'MVI_0033.MP4');
+  assert.match(r.data.musicNote, /Musique = son de « MVI_0033.MP4 » \(A2\)/);
+});
+
+test('Un clip audio sélectionné est prioritaire', () => {
+  const r = makeTimeline({ selectAudio: true }).call('getBeatCutContext');
+  assert.equal(r.data.music.name, 'musique.wav');
+  assert.equal(r.data.musicNote, null);
 });

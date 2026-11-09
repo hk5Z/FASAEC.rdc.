@@ -90,7 +90,7 @@ h3.caps { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; colo
 .cad small { font-size: 9px; text-align: center; }
 .cad.active { color: var(--accent); }
 .cad.active svg { border-color: var(--accent); box-shadow: 0 0 10px rgba(79,179,169,.45); }
-.pill { margin: 8px auto 0; width: fit-content; max-width: 100%; text-align: center; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 12px; padding: 3px 10px; overflow-wrap: anywhere; }
+.pill { white-space: pre-line; margin: 8px auto 0; width: fit-content; max-width: 100%; text-align: center; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 12px; padding: 3px 10px; overflow-wrap: anywhere; }
 .pill.on { color: var(--accent); border-color: rgba(79,179,169,.6); }
 .pill.on::before { content: "● "; }
 .go { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 10px auto 4px; background: transparent; border: 0; color: var(--accent); font-weight: 700; }

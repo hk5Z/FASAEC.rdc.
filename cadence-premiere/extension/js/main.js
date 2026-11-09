@@ -219,7 +219,7 @@
     }
     S.ctx = ctx;
     $('rushPill').textContent = ctx.rushCount + (ctx.rushCount > 1 ? ' rushes sélectionnés' : ' rush sélectionné') +
-      ' (' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ') · musique : ' + m.name;
+      ' (' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ') · musique : ' + m.name + (ctx.musicNote ? '\n' + ctx.musicNote : '');
     $('rushPill').classList.add('on');
     detectMusicBeats();
     updatePlan();

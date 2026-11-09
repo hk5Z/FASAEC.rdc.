@@ -8,7 +8,7 @@
  */
 var cadence = (function () {
     var TICKS_PER_SECOND = 254016000000;
-    var VERSION = '0.2.0';
+    var VERSION = '0.2.1';
     var IMPORT_EXTENSIONS = ['mp4', 'm4v', 'mov', 'mxf', 'avi', 'mts', 'm2ts', 'mpg', 'mpeg', 'wmv', '3gp',
         'wav', 'mp3', 'aac', 'm4a', 'aif', 'aiff', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'gif', 'bmp'];
 
@@ -409,30 +409,49 @@ var cadence = (function () {
         if (tracks.length < 2) {
             fail('Beat Cut multicam : s\u00e9lectionnez des rushes sur au moins 2 pistes vid\u00e9o diff\u00e9rentes (ex. V1, V2, V3). ' + nRush + ' rush(s) s\u00e9lectionn\u00e9(s) sur une seule piste.');
         }
-        var best = null, bestOverlap = 0, bestSelected = false;
+        // Choix de la musique, par priorit\u00e9 : clip audio s\u00e9lectionn\u00e9, puis m\u00e9dia distinct des rushes,
+        // puis plus long recouvrement. Le son d'un rush n'est retenu qu'en dernier recours.
+        var best = null, bestScore = null, seen = [];
         for (t = 0; t < seq.audioTracks.numTracks; t++) {
-            var clips = seq.audioTracks[t].clips;
+            var clips = seq.audioTracks[t].clips, onTrack = 0;
             for (c = 0; c < clips.numItems; c++) {
                 var it = clips[c];
-                if (it.projectItem && rushIds[it.projectItem.nodeId]) { continue; } // son des rushes
+                onTrack++;
                 var ov = Math.min(it.end.seconds, r1) - Math.max(it.start.seconds, r0);
-                var selected = false;
-                try { selected = !!it.isSelected(); } catch (e) { selected = false; }
                 if (ov <= 0) { continue; }
-                if ((selected && !bestSelected) || (selected === bestSelected && ov > bestOverlap)) {
-                    best = { item: it, track: t }; bestOverlap = ov; bestSelected = selected;
+                var selected = false, fromRush = false;
+                try { selected = !!it.isSelected(); } catch (e) { selected = false; }
+                try { fromRush = !!(it.projectItem && rushIds[it.projectItem.nodeId]); } catch (e2) { fromRush = false; }
+                var score = [selected ? 1 : 0, fromRush ? 0 : 1, ov];
+                if (!bestScore || score[0] > bestScore[0] || (score[0] === bestScore[0] &&
+                        (score[1] > bestScore[1] || (score[1] === bestScore[1] && score[2] > bestScore[2])))) {
+                    best = { item: it, track: t, fromRush: fromRush, selected: selected }; bestScore = score;
                 }
             }
+            seen.push('A' + (t + 1) + ' : ' + onTrack + ' clip(s)');
         }
         if (!best) {
-            fail('Aucune musique trouv\u00e9e sous les rushes : placez la musique sur une piste audio (A1\u2026) en face des rushes.');
+            fail('Aucun clip audio en face des rushes (de ' + formatTimecode(seq, r0) + ' \u00e0 ' + formatTimecode(seq, r1) + '). ' +
+                'Pistes audio de \u00ab ' + seq.name + ' \u00bb : ' + (seen.length ? seen.join(', ') : 'aucune') + '. ' +
+                'Placez la musique sur une piste audio sous les rushes, ou s\u00e9lectionnez-la avec les rushes.');
         }
         var music = clipInfo(best.item, best.track);
         if (!music.mediaPath) { fail('Le fichier de la musique \u00ab ' + music.name + ' \u00bb est introuvable (hors ligne ?).'); }
+        var note = null;
+        if (best.fromRush) {
+            for (i = 0; i < tracks.length; i++) {
+                for (c = 0; c < seq.videoTracks[tracks[i].index].clips.numItems; c++) {
+                    var v = seq.videoTracks[tracks[i].index].clips[c];
+                    if (v.projectItem && best.item.projectItem && v.projectItem.nodeId === best.item.projectItem.nodeId) { note = tracks[i].name; }
+                }
+            }
+            note = 'Musique = son de \u00ab ' + music.name + ' \u00bb (A' + (best.track + 1) + ')' +
+                (note ? ', dont l\u2019image est aussi un angle (' + note + ') : d\u00e9s\u00e9lectionnez-la si ce n\u2019est pas un rush.' : '.');
+        }
         return {
             sequence: { name: seq.name, id: String(seq.sequenceID) },
             frame: frameSeconds(seq), tracks: tracks, rushCount: nRush,
-            range: { start: r0, end: r1 }, music: music
+            range: { start: r0, end: r1 }, music: music, musicNote: note
         };
     }
 
