@@ -119,6 +119,7 @@ Aucune fonction n’utilise Internet.
 - **Panneau vide ou gris** : ouvrez Chrome sur `http://localhost:8088` pendant que le panneau est ouvert (fichier `.debug`) et consultez la console.
 - **« Script hôte : ERREUR » ou « EvalScript error »** dans *Réglages et diagnostic* : réinstallez, puis vérifiez que `jsx\host.jsx` est présent. Journaux : `%TEMP%\CEP11-PPRO.log`. Pour plus de détails, ajoutez une valeur chaîne `LogLevel` = `6` dans la clé CSXS.11 et redémarrez.
 - **Vérifier la version CEP réelle** : *Réglages et diagnostic* affiche « PPRO 23.x · CEP 11.x ».
+- **Beat Cut : « refusé tous les formats de timecode essayés (…) »** : la commande de coupe interne de Premiere n’a coupé à aucun des formats essayés. Le panneau calibre le format sur la première coupe (début de séquence 00:00:00:00 ou 01:00:00:00, avec « : » ou « ; » en drop-frame), puis le réutilise. Envoyez le message complet, qui indique la cadence, le début de séquence et le format d’affichage. En attendant, utilisez « Marqueurs seulement » puis Ctrl+K.
 - **« Aucune séquence active »** : cliquez dans le panneau Montage pour donner le focus à la séquence.
 - **« Aucun clip sélectionné »** : sélectionnez un clip dans la timeline, pas dans le panneau Projet.
 - **« Le décodeur intégré ne lit pas l’audio… FFmpeg est introuvable »** : le codec audio du fichier n’est pas lu par CEP. Installez FFmpeg (§ 6) ou exportez l’audio en WAV.
@@ -131,13 +132,13 @@ Dans le dossier `cadence-premiere` (Node.js 18 ou plus) :
 
 ```
 npm install                 # outils de test seulement (acorn, xmllint-wasm, playwright-core)
-npm test                    # 43 tests Node : DSP, Beat Cut multicam, script hôte sur DOM simulé, manifeste, chargeur audio
+npm test                    # 45 tests Node : DSP, Beat Cut multicam, script hôte sur DOM simulé, manifeste, chargeur audio
 npm run validate:manifest   # validation XSD Adobe (télécharge le schéma une fois)
 npm run test:ui             # interface dans Chrome headless (CHROME_PATH si Chrome n’est pas trouvé)
 ```
 
 **Check-list à faire dans Premiere Pro 23.x** (projet de test, enregistré au préalable) :
-1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.2.3.
+1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.2.4.
 2. Chargez un clip WAV, puis un clip MP4 **sans FFmpeg** : l’état doit indiquer « décodeur intégré ». Comparez la forme d’onde et la durée affichée avec la timeline.
 3. Beat Cut : empilez 3 rushes sur V1–V3 avec une musique sur A1, sélectionnez les rushes, choisissez NORMAL, puis lancez. Vérifiez qu’une copie « … Copie » de la séquence apparaît, que les coupes tombent sur les temps à la lecture, et que les angles alternent. Faites un essai avec une séquence en 25 i/s et une autre en 29,97 i/s (format du timecode envoyé à la commande de coupe).
 4. Marquez les silences, puis créez la séquence sans silences. Contrôlez les raccords, en particulier sur un média dont le timecode ne commence pas à 0.
