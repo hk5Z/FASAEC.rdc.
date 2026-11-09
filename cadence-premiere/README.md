@@ -81,11 +81,11 @@ Ce réglage autorise **toutes** les extensions CEP 11 non signées pour votre co
 
 ## 6. Utilisation
 
-Commencez par **sélectionner un clip** dans la séquence active. Ensuite, ouvrez BEAT CUT ou VOICE CUT et cliquez sur **Analyser** : le clip sélectionné est chargé automatiquement. Vous pouvez aussi cliquer d’abord sur **Charger le clip sélectionné**. Le panneau lit l’audio de la portion utilisée (du point d’entrée au point de sortie), puis la forme d’onde affiche les propositions. **Aucune analyse ne modifie la séquence.** Chaque action qui touche au projet ouvre d’abord une **demande de confirmation** qui décrit ce qui va changer.
+Commencez par **sélectionner un clip** dans la séquence active. Pour VOICE CUT, sélectionnez un clip puis cliquez sur **Analyser** : le clip est chargé automatiquement. Pour BEAT CUT, sélectionnez vos rushes empilés puis cliquez sur **Lancer le Beat Cut** (voir le tableau). Vous pouvez aussi cliquer d’abord sur **Charger le clip sélectionné**. Le panneau lit l’audio de la portion utilisée (du point d’entrée au point de sortie), puis la forme d’onde affiche les propositions. **Aucune analyse ne modifie la séquence.** Chaque action qui touche au projet ouvre d’abord une **demande de confirmation** qui décrit ce qui va changer.
 
 | Bouton | Ce qu’il fait | Ce qui est modifié (après confirmation) |
 |---|---|---|
-| **BEAT CUT** | Détecte les attaques (flux d’énergie large bande + graves) ou une grille de tempo (autocorrélation, BPM estimé). Réglages : sensibilité, écart minimal, 1 temps sur N. Pré-écoute avec clics. | **Marqueurs « Temps »** sur la séquence (API officielle). En option **expérimentale** : coupe de toutes les pistes aux temps, après création automatique d’une **copie de sauvegarde** de la séquence. |
+| **BEAT CUT** | **Montage multicam au rythme**, comme dans les vidéos de démonstration. Préparation : rushes empilés sur V1, V2, V3…, musique sur une piste audio, rushes sélectionnés. Le panneau trouve la musique tout seul sous les rushes (le son des rushes est ignoré), estime le BPM et propose une cadence **RAPIDE** (1 temps), **NORMAL** (2 temps) ou **LENT** (4 temps), avec un ordre des angles cyclique ou aléatoire. L’aperçu sur la forme d’onde montre les coupes et une bande de couleur indiquant l’angle visible. Pré-écoute avec clics. Les réglages avancés proposent la grille de tempo ou les attaques, la sensibilité et l’écart minimal. | **Copie de sauvegarde** de la séquence, puis coupe des pistes vidéo des rushes aux temps choisis. Dans chaque segment, les morceaux des pistes **au-dessus** de l’angle choisi sont retirés : un seul angle reste visible. Un marqueur « Beat » est ajouté à chaque coupe (option). La musique et le son des rushes ne sont pas coupés. La coupe passe par la commande QE `razor`, non documentée : chaque coupe est **vérifiée**, et si une seule manque, **rien n’est retiré**. Le bouton **Marqueurs seulement** ne pose que des marqueurs (API officielle) ; il fonctionne aussi avec un simple clip de musique sélectionné. |
 | **VOICE CUT** | Détecte les silences d’après un seuil en dBFS (bouton « Suggérer »), une durée minimale et une marge conservée. Liste des passages, exclusion au clic, pré-écoute « sans les silences ». | **Marqueurs « Silence »** avec durée, **ou** une **nouvelle séquence** « … – sans silences » construite à partir de sous-éléments (API officielle). La séquence d’origine n’est pas touchée. |
 | **AMÉLIORER LA VOIX** | Chaîne réglable : passe-haut 80 Hz, −2 dB à 300 Hz, +3 dB à 3 kHz, expandeur (−12 dB max entre les phrases), compresseur 3:1, normalisation crête à −1 dBFS. Écoute avant/après. | Écrit un **nouveau WAV 24 bits** dans `Cadence_Rendus\` à côté du `.prproj`, l’importe dans le chutier « Cadence – rendus » et, en option, le place sur une piste audio libre sous le clip. Le média d’origine reste intact. |
 | **ACCÉLÉRER** | **A** (expérimental) : vitesse des clips sélectionnés via le DOM QE avec « conserver la hauteur » demandé. La vitesse est **relue et vérifiée**. **B** (fiable) : version audio étirée par WSOLA, hauteur conservée, avec pré-écoute. | A : vitesse du clip (Ctrl+Z pour annuler). B : nouveau WAV importé (et placé en option). |
@@ -103,7 +103,7 @@ Aucune fonction n’utilise Internet.
 
 | Besoin | Limite | Alternative retenue |
 |---|---|---|
-| Couper (rasoir) une piste | Aucune méthode officielle en ExtendScript 23.x. | Marqueurs (officiel) ou séquence reconstruite à partir de sous-éléments (officiel). Le rasoir via DOM QE (`track.razor(timecode)`) reste **optionnel et expérimental**, avec sauvegarde préalable. |
+| Couper (rasoir) une piste | Aucune méthode officielle en ExtendScript 23.x. Le retrait d’un morceau, lui, est officiel (`TrackItem.remove`). | Beat Cut coupe via le DOM QE (`track.razor(timecode)`) après une copie de sauvegarde ; il vérifie chaque coupe avec l’API officielle et ne retire rien en cas d’échec. Repli : « Marqueurs seulement », puis Ctrl+K dans Premiere. Voice Cut reconstruit une séquence à partir de sous-éléments (officiel). |
 | Supprimer les silences avec ondulation sur toutes les pistes | Pas d’API officielle d’édition par ondulation multipiste. | Nouvelle séquence sans silences (clip analysé seulement). |
 | Changer la vitesse d’un clip | L’API officielle ne propose que `getSpeed()` ; `setSpeed` n’existe que dans le DOM QE, non documenté. | QE + vérification via `getSpeed()`, ou rendu audio WSOLA. Repli manuel : **Clip > Vitesse/Durée (Ctrl+R)**. |
 | Appliquer des effets audio Premiere (DeNoise, Améliorer la parole…) | Pas d’ajout d’effet dans l’API officielle 23.x. Les noms QE dépendent de la langue de l’interface. | Traitement local rendu dans un nouveau fichier. Pour un débruitage plus poussé : panneau *Son essentiel* de Premiere. |
@@ -131,15 +131,15 @@ Dans le dossier `cadence-premiere` (Node.js 18 ou plus) :
 
 ```
 npm install                 # outils de test seulement (acorn, xmllint-wasm, playwright-core)
-npm test                    # 31 tests Node : DSP, script hôte sur DOM simulé, manifeste, chargeur audio (MP4, FFmpeg)
+npm test                    # 35 tests Node : DSP, Beat Cut multicam, script hôte sur DOM simulé, manifeste, chargeur audio
 npm run validate:manifest   # validation XSD Adobe (télécharge le schéma une fois)
 npm run test:ui             # interface dans Chrome headless (CHROME_PATH si Chrome n’est pas trouvé)
 ```
 
 **Check-list à faire dans Premiere Pro 23.x** (projet de test, enregistré au préalable) :
-1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.1.1.
+1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.2.0.
 2. Chargez un clip WAV, puis un clip MP4 **sans FFmpeg** : l’état doit indiquer « décodeur intégré ». Comparez la forme d’onde et la durée affichée avec la timeline.
-3. Ajoutez les marqueurs Beat Cut : leur position doit tomber sur les temps à l’écoute.
+3. Beat Cut : empilez 3 rushes sur V1–V3 avec une musique sur A1, sélectionnez les rushes, choisissez NORMAL, puis lancez. Vérifiez qu’une copie « … Copie » de la séquence apparaît, que les coupes tombent sur les temps à la lecture, et que les angles alternent. Faites un essai avec une séquence en 25 i/s et une autre en 29,97 i/s (format du timecode envoyé à la commande de coupe).
 4. Marquez les silences, puis créez la séquence sans silences. Contrôlez les raccords, en particulier sur un média dont le timecode ne commence pas à 0.
 5. Améliorer la voix : le fichier est écrit dans `Cadence_Rendus`, importé et placé sur une piste libre, aligné avec le clip.
 6. Accélérer A : la vitesse est relue et la hauteur doit être conservée (Ctrl+R). Accélérer B : fichier importé.

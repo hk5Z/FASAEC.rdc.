@@ -70,7 +70,22 @@
       this.sequence.markers = [];
       return { sequence: this.sequence.name, before: n, deleted: n, remaining: 0 };
     },
-    razorAtTimes: function (a) { return { backup: true, cuts: a.times.length, timecodes: [], clipsBefore: 1, clipsAfter: 1 + a.times.length }; },
+    // Simulation : 3 rushes empilés sur V1-V3 sur toute la durée de la musique ouverte.
+    getBeatCutContext: function () {
+      if (!this.clip) throw new Error('Aucun rush sélectionné sur la timeline. (Mode navigateur : ouvrez d’abord un fichier de musique.)');
+      var r = { start: this.clip.start, end: this.clip.end };
+      return {
+        sequence: { name: this.sequence.name, id: this.sequence.id }, frame: 1 / 25, rushCount: 3, range: r,
+        tracks: [0, 1, 2].map(function (i) { return { index: i, name: 'V' + (i + 1), ranges: [r], clips: ['rush_' + (i + 1) + '.mp4'] }; }),
+        music: this.clip
+      };
+    },
+    beatCutMulticam: function (a) {
+      var removed = a.segments.reduce(function (n, s) { return n + a.tracks.filter(function (t) { return s.keep !== null && t > s.keep; }).length; }, 0);
+      if (a.markers) this.sequence.markers = this.sequence.markers.concat(a.cuts.map(function (t) { return { time: t, name: 'Beat' }; }));
+      return { backup: true, razored: a.cuts.length * a.tracks.length, missing: 0, removed: removed, skipped: 0,
+        markers: a.markers ? a.cuts.length : 0, clipsBefore: 3, clipsAfter: 3 + a.cuts.length * a.tracks.length - removed, sequence: this.sequence.name };
+    },
     createCutSequence: function (a) { return { sequenceName: (a.name || 'Clip') + ' – sans silences', segments: a.segments.length, bin: 'Cadence – Voice Cut' }; },
     chooseFiles: function () { return { paths: ['C:/Médias/demo_interview.mp4', 'C:/Médias/musique.wav', 'C:/Médias/notes.txt'] }; },
     importFiles: function (a) {

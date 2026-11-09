@@ -453,6 +453,58 @@
     return out.map(function (c) { return c.slice(0, outLen); });
   }
 
+  // ---------------------------------------------------------------- Beat Cut multicam
+  var CADENCES = {
+    rapide: { every: 1, label: 'RAPIDE', hint: '1 temps · Énergique' },
+    normal: { every: 2, label: 'NORMAL', hint: '2 temps · Équilibré' },
+    lent: { every: 4, label: 'LENT', hint: '4 temps · Posé' }
+  };
+
+  /**
+   * Planifie un montage multicam au rythme : coupe tous les N temps et choisit l'angle visible par segment.
+   * opts : beats (s, temps séquence, triés), range {start,end}, tracks [{index, ranges:[{start,end}]}],
+   *        every, order ('cycle' | 'random'), fps, minSegment (s), seed.
+   * Retour : { cuts: [s], segments: [{start, end, keep}] } ; keep = index de piste visible (null si aucune).
+   * Les pistes au-dessus de keep seront vidées sur le segment ; celles en dessous restent (masquées).
+   */
+  function planMulticam(opts) {
+    var fps = opts.fps || 25, every = Math.max(1, opts.every || 2);
+    var minSeg = opts.minSegment != null ? opts.minSegment : 0.2;
+    var r0 = opts.range.start, r1 = opts.range.end;
+    var snap = function (t) { return Math.round(t * fps) / fps; };
+    var cuts = [], last = r0;
+    (opts.beats || []).forEach(function (t, i) {
+      if (i % every !== 0) return;
+      var c = snap(t);
+      if (c - last >= minSeg && r1 - c >= minSeg) { cuts.push(c); last = c; }
+    });
+    var tracks = (opts.tracks || []).slice().sort(function (a, b) { return b.index - a.index; }); // du haut vers le bas
+    function covers(tr, t) { return tr.ranges.some(function (g) { return t > g.start && t < g.end; }); }
+    var seed = opts.seed || 1;
+    function rnd() { seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var bounds = [r0].concat(cuts, [r1]), segments = [], prev = null;
+    for (var k = 0; k < bounds.length - 1; k++) {
+      var mid = (bounds[k] + bounds[k + 1]) / 2;
+      var avail = tracks.filter(function (tr) { return covers(tr, mid); });
+      var keep = null;
+      if (avail.length) {
+        if (opts.order === 'random') {
+          var pool = avail.length > 1 ? avail.filter(function (tr) { return tr.index !== prev; }) : avail;
+          keep = pool[Math.floor(rnd() * pool.length)].index;
+        } else {
+          // cycle du haut vers le bas, en sautant les pistes sans image à cet endroit
+          for (var j = 0; j < tracks.length && keep === null; j++) {
+            var cand = tracks[(k + j) % tracks.length];
+            if (covers(cand, mid)) keep = cand.index;
+          }
+        }
+      }
+      segments.push({ start: bounds[k], end: bounds[k + 1], keep: keep });
+      prev = keep;
+    }
+    return { cuts: cuts, segments: segments };
+  }
+
   // ---------------------------------------------------------------- correspondance temps
   /** Temps média (s) -> temps séquence (s) pour un clip de la timeline. */
   function mediaToSequence(t, clip) {
@@ -467,7 +519,8 @@
     biquad: biquad, applyBiquad: applyBiquad,
     onsetEnvelope: onsetEnvelope, estimateTempo: estimateTempo, detectBeats: detectBeats,
     processVoice: processVoice, VOICE_STEPS: VOICE_STEPS,
-    timeStretch: timeStretch, mediaToSequence: mediaToSequence
+    timeStretch: timeStretch, mediaToSequence: mediaToSequence,
+    CADENCES: CADENCES, planMulticam: planMulticam
   };
   if (root) root.CadenceDSP = api;
   if (typeof module === 'object' && module && module.exports) module.exports = api;
