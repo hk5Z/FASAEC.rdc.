@@ -21,14 +21,14 @@ class Time {
   }
 }
 function tcToSeconds(tc) {
-  const [h, m, s, f] = tc.split(':').map(Number);
-  return h * 3600 + m * 60 + s + f / FPS;
+  const [h, m, s, fr] = tc.split(/[:;]/).map(Number);
+  return h * 3600 + m * 60 + s + fr / FPS;
 }
 function collection(arr, countKey = 'numItems') {
   return new Proxy({}, { get: (t, k) => (k === countKey ? arr.length : (/^\d+$/.test(String(k)) ? arr[Number(k)] : undefined)) });
 }
 
-function makeTimeline({ cloneActivates = true, openWorks = true, razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true, rushAudio = true, musicVideo = false } = {}) {
+function makeTimeline({ zeroSec = 0, razorOffset = 0, cloneActivates = true, openWorks = true, razorWorks = true, selectAudio = false, rushTracks = 3, withMusic = true, rushAudio = true, musicVideo = false } = {}) {
   let id = 1;
   const calls = [];
   const pi = name => ({ nodeId: 'pi-' + name, name, getMediaPath: () => 'C:\\media\\' + name });
@@ -54,7 +54,7 @@ function makeTimeline({ cloneActivates = true, openWorks = true, razorWorks = tr
 
   const markers = [];
   const seq = {
-    name: 'Clip', sequenceID: 'seq-1',
+    name: 'Clip', sequenceID: 'seq-1', zeroPoint: String(Math.round(zeroSec * 254016000000)),
     videoTracks: collection(video.map(arr => ({ clips: collection(arr) })), 'numTracks'),
     audioTracks: collection(audio.map(arr => ({ clips: collection(arr) })), 'numTracks'),
     videoDisplayFormat: 101,
@@ -73,7 +73,8 @@ function makeTimeline({ cloneActivates = true, openWorks = true, razorWorks = tr
     razor(tc) {
       calls.push(['razor', t, tc]);
       if (!razorWorks) return;
-      const at = tcToSeconds(tc), arr = video[t];
+      // Premiere interprète le timecode depuis le début affiché de la séquence (zeroPoint) ; razorOffset simule une coupe décalée.
+      const at = tcToSeconds(tc) - zeroSec + razorOffset, arr = video[t];
       const c = arr.find(x => x.start.seconds < at && x.end.seconds > at);
       if (!c) return;
       const right = item(c.name, 'Video', at, c.end.seconds, c.projectItem, arr);
@@ -147,15 +148,41 @@ test('Beat Cut : sauvegarde, coupes au rythme, un seul angle visible par segment
   assert.ok(w.calls.every(c => c[0] !== 'razor' || typeof c[1] === 'number'), 'seules des pistes vidéo sont coupées');
 });
 
-test('Sécurité : si la coupe QE échoue, aucun rush entier n’est supprimé', () => {
+test('Sécurité : si la coupe QE échoue, rien n’est coupé ni retiré, message détaillé', () => {
   const w = makeTimeline({ razorWorks: false });
   const ctx = w.call('getBeatCutContext').data;
   const plan = D.planMulticam({ beats: [1, 2, 3, 4, 5, 6], range: ctx.range, tracks: ctx.tracks, every: 1, fps: 25 });
   const r = w.call('beatCutMulticam', { sequenceId: ctx.sequence.id, tracks: [0, 1, 2], cuts: plan.cuts, segments: plan.segments });
-  assert.equal(r.data.removed, 0);
-  assert.equal(r.data.missing, r.data.razored, 'coupes manquantes détectées');
-  assert.ok(r.data.missing > 0);
+  assert.match(r.error, /refusé tous les formats de timecode essayés \(00:00:01:00 \| .*\).*25 i\/s, début 0 s/);
+  assert.ok(w.calls.filter(c => c[0] === 'razor').length <= 6, 'arrêt dès la première coupe');
+  assert.equal(w.calls.filter(c => c[0] === 'remove').length, 0);
   assert.equal(w.video.flat().length, 3);
+});
+
+test('Séquence qui commence à 01:00:00:00 : le bon format de timecode est trouvé puis réutilisé', () => {
+  const w = makeTimeline({ zeroSec: 3600 });
+  const ctx = w.call('getBeatCutContext').data;
+  const beats = []; for (let t = 0.5; t < 12; t += 0.5) beats.push(t);
+  const plan = D.planMulticam({ beats, range: ctx.range, tracks: ctx.tracks, every: 2, fps: 25 });
+  const r = w.call('beatCutMulticam', { sequenceId: ctx.sequence.id, tracks: [0, 1, 2], cuts: plan.cuts, segments: plan.segments });
+  assert.equal(r.ok, true, r.error);
+  assert.equal(r.data.missing, 0);
+  assert.equal(r.data.razored, plan.cuts.length * 3);
+  const razors = w.calls.filter(c => c[0] === 'razor').map(c => c[2]);
+  assert.match(razors[0], /^00:00:00:/, 'premier essai : timecode depuis 0 (sans effet ici)');
+  assert.equal(razors[1], '01' + razors[0].slice(2), 'deuxième essai : même instant, début de séquence inclus');
+  assert.ok(razors.slice(1).every(tc => tc.startsWith('01:')), 'format calibré réutilisé pour toutes les coupes');
+  assert.equal(razors.length, plan.cuts.length * 3 + 1);
+});
+
+test('Sécurité : une coupe au mauvais endroit arrête tout immédiatement', () => {
+  const w = makeTimeline({ razorOffset: 2 });
+  const ctx = w.call('getBeatCutContext').data;
+  const plan = D.planMulticam({ beats: [1, 2, 3, 4], range: ctx.range, tracks: ctx.tracks, every: 1, fps: 25 });
+  const r = w.call('beatCutMulticam', { sequenceId: ctx.sequence.id, tracks: [0, 1, 2], cuts: plan.cuts, segments: plan.segments });
+  assert.match(r.error, /coupé au mauvais endroit.*Clip Copie/);
+  assert.equal(w.calls.filter(c => c[0] === 'razor').length, 1);
+  assert.equal(w.calls.filter(c => c[0] === 'remove').length, 0);
 });
 
 test('Beat Cut : refus si la séquence active a changé ou si une seule piste', () => {

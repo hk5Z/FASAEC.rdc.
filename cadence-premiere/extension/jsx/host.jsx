@@ -386,6 +386,53 @@ var cadence = (function () {
         return f && f.seconds > 0 ? f.seconds : 1 / 25;
     }
 
+    // Relit la piste depuis la s\u00e9quence active pour ne pas d\u00e9pendre d'un objet DOM p\u00e9rim\u00e9 apr\u00e8s une op\u00e9ration QE.
+    function liveTrack(index) { return app.project.activeSequence.videoTracks[index]; }
+
+    function hasEditAt(index, at, tol) {
+        var cs = liveTrack(index).clips, c;
+        for (c = 0; c < cs.numItems; c++) {
+            if (Math.abs(cs[c].start.seconds - at) <= tol) { return true; }
+        }
+        return false;
+    }
+
+    function zeroSeconds(seq) {
+        var z = 0;
+        try { z = Number(seq.zeroPoint) / TICKS_PER_SECOND; } catch (e) { z = 0; }
+        return isFinite(z) && z > 0 ? z : 0;
+    }
+
+    function fmtSeconds(s) { return String(Math.round(s * 1000) / 1000); }
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    function manualTimecode(seconds, frameSec, sep) {
+        var fps = Math.round(1 / frameSec), f = Math.round(seconds / frameSec);
+        return pad2(Math.floor(f / (fps * 3600))) + sep + pad2(Math.floor(f / (fps * 60)) % 60) + sep +
+            pad2(Math.floor(f / fps) % 60) + sep + pad2(f % fps);
+    }
+
+    /** Formats de timecode candidats pour razor(), dans un ordre fixe (l'index calibr\u00e9 est r\u00e9utilis\u00e9). */
+    function razorCandidates(seq, ct) {
+        var fr = seq.getSettings().videoFrameRate, fs = frameSeconds(seq), z = zeroSeconds(seq), out = [], tm;
+        function fmt(s) {
+            try { tm = new Time(); tm.seconds = s; return tm.getFormatted(fr, seq.videoDisplayFormat); } catch (e) { return ''; }
+        }
+        out.push(fmt(ct));                              // timecode affich\u00e9, origine 0
+        out.push(fmt(ct + z));                          // timecode affich\u00e9, d\u00e9but de s\u00e9quence inclus
+        out.push(manualTimecode(ct, fs, ':'));          // HH:MM:SS:FF sans drop-frame
+        out.push(manualTimecode(ct + z, fs, ':'));
+        out.push(manualTimecode(ct, fs, ';'));
+        out.push(manualTimecode(ct + z, fs, ';'));
+        return out;
+    }
+
+    function timingInfo(seq) {
+        return 'S\u00e9quence : ' + Math.round(1000 / frameSeconds(seq)) / 1000 + ' i/s, d\u00e9but ' + fmtSeconds(zeroSeconds(seq)) +
+            ' s, format d\'affichage ' + seq.videoDisplayFormat + '.';
+    }
+
     function clipInfo(item, trackIndex) {
         var path = '';
         try { path = item.projectItem ? item.projectItem.getMediaPath() : ''; } catch (e) { path = ''; }
@@ -502,25 +549,49 @@ var cadence = (function () {
         app.enableQE();
         var qs = qe.project.getActiveSequence();
         if (!qs) { fail('Le DOM QE ne trouve pas la s\u00e9quence active (copie de sauvegarde cr\u00e9\u00e9e, rien coup\u00e9).'); }
+        // Le format de timecode attendu par razor() n'est pas document\u00e9 : il est calibr\u00e9 sur la premi\u00e8re coupe.
+        var fmtIdx = -1, tried = [];
         for (i = 0; i < tracks.length; i++) {
             t = tracks[i];
+            var qTrack = qs.getVideoTrackAt(t);
             for (k = 0; k < cuts.length; k++) {
-                var ct = num(cuts[k], 'temps de coupe'), clips = seq.videoTracks[t].clips, inside = false;
+                var ct = num(cuts[k], 'temps de coupe'), clips = liveTrack(t).clips, inside = false;
                 for (c = 0; c < clips.numItems; c++) {
                     if (clips[c].start.seconds < ct - half && clips[c].end.seconds > ct + half) { inside = true; break; }
                 }
-                if (inside) { qs.getVideoTrackAt(t).razor(formatTimecode(seq, ct)); razored++; expected.push({ t: t, at: ct }); }
+                if (!inside) { continue; }
+                var cands = razorCandidates(seq, ct);
+                if (fmtIdx < 0) {
+                    for (var j = 0; j < cands.length && fmtIdx < 0; j++) {
+                        if (contains(tried, cands[j])) { continue; }
+                        var n0 = liveTrack(t).clips.numItems;
+                        qTrack.razor(cands[j]);
+                        tried.push(cands[j]);
+                        if (hasEditAt(t, ct, half)) { fmtIdx = j; }
+                        else if (liveTrack(t).clips.numItems !== n0) {
+                            fail('La commande de coupe de Premiere a coup\u00e9 au mauvais endroit avec le timecode \u00ab ' + cands[j] + ' \u00bb (attendu : ' +
+                                fmtSeconds(ct) + ' s sur V' + (t + 1) + '). Arr\u00eat imm\u00e9diat : annulez avec Ctrl+Z' +
+                                (backupName ? ' ou utilisez la copie \u00ab ' + backupName + ' \u00bb' : '') + '. ' + timingInfo(seq));
+                        }
+                    }
+                    if (fmtIdx < 0) {
+                        fail('Premiere n\'a effectu\u00e9 aucune coupe : la commande interne \u00ab razor \u00bb a refus\u00e9 tous les formats de timecode essay\u00e9s (' +
+                            tried.join(' | ') + ') pour ' + fmtSeconds(ct) + ' s sur V' + (t + 1) + '. ' + timingInfo(seq) +
+                            ' Rien n\'a \u00e9t\u00e9 retir\u00e9. Utilisez \u00ab Marqueurs seulement \u00bb puis Ctrl+K.');
+                    }
+                } else {
+                    qTrack.razor(cands[fmtIdx]);
+                }
+                razored++;
+                expected.push({ t: t, at: ct });
             }
         }
-        // V\u00e9rification par l'API officielle : chaque coupe demand\u00e9e doit avoir cr\u00e9\u00e9 une jonction.
+        // V\u00e9rification par l'API officielle (s\u00e9quence relue) : chaque coupe demand\u00e9e doit avoir cr\u00e9\u00e9 une jonction.
         var missing = 0;
         for (i = 0; i < expected.length; i++) {
-            var cs = seq.videoTracks[expected[i].t].clips, found = false;
-            for (c = 0; c < cs.numItems; c++) {
-                if (Math.abs(cs[c].start.seconds - expected[i].at) <= half) { found = true; break; }
-            }
-            if (!found) { missing++; }
+            if (!hasEditAt(expected[i].t, expected[i].at, half)) { missing++; }
         }
+        seq = app.project.activeSequence;
         // "all" (d\u00e9faut) : un seul plan visible par segment, retir\u00e9 de toutes les autres pistes.
         // "stack" : seules les pistes au-dessus de l'angle choisi sont vid\u00e9es (la piste du bas reste continue).
         var allTracks = a.layout !== 'stack', toRemove = [], skipped = 0;
