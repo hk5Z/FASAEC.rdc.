@@ -231,27 +231,30 @@
       var ctx = await loadBeatCutContext();
       if (!S.plan || !S.plan.cuts.length) throw new Error($('beatResult').textContent || 'Aucune coupe possible.');
       var p = S.plan, removed = p.segments.reduce(function (n, s) {
-        return n + (s.keep === null ? 0 : ctx.tracks.filter(function (t) { return t.index > s.keep; }).length);
+        var all = $('beatLayout').value !== 'stack';
+        return n + (s.keep === null ? 0 : ctx.tracks.filter(function (t) { return all ? t.index !== s.keep : t.index > s.keep; }).length);
       }, 0);
       var ok = await confirmDialog('Monter ' + ctx.rushCount + ' rushes au rythme ?',
         '<p>Cadence <b>' + cadence().label + '</b> (' + esc(cadence().hint) + ')' + (S.beats.bpm ? ', ≈ ' + Math.round(S.beats.bpm) + ' BPM' : '') +
         ' : <b>' + p.cuts.length + ' coupes</b> sur ' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ' dans <b>' + esc(ctx.sequence.name) + '</b>.</p>' +
         '<ul><li>Une <b>copie de sauvegarde</b> de la séquence est créée d’abord.</li>' +
-        '<li>Jusqu’à ' + removed + ' morceaux seront retirés des pistes du dessus pour alterner les angles (aperçu en couleur sur la forme d’onde).</li>' +
+        '<li>Les ' + ctx.tracks.length + ' pistes (' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ') sont coupées ; jusqu’à ' + removed + ' morceaux seront retirés ' + ($('beatLayout').value !== 'stack' ? 'de toutes les pistes pour ne garder qu’un plan visible à la fois' : 'des pistes du dessus (la piste du bas reste continue)') + '. Aperçu en couleur sur la forme d’onde.</li>' +
         '<li>La musique et le son des rushes ne sont pas coupés. Les médias d’origine ne sont pas modifiés.</li>' +
         '<li><b>Expérimental</b> : la coupe utilise une commande interne non documentée de Premiere ; chaque coupe est vérifiée et, si une seule manque, rien n’est retiré.</li></ul>',
         'Sauvegarder puis monter');
       if (!ok) return 'Beat Cut annulé : rien n’a été modifié.';
       var r = await Bridge.call('beatCutMulticam', {
         sequenceId: ctx.sequence.id, tracks: ctx.tracks.map(function (t) { return t.index; }),
-        cuts: p.cuts, segments: p.segments, markers: $('beatMarkersOpt').checked, backup: true
+        cuts: p.cuts, segments: p.segments, markers: $('beatMarkersOpt').checked, backup: true, layout: $('beatLayout').value
       });
       if (r.missing > 0) {
         throw new Error('Premiere n’a pas effectué ' + r.missing + ' coupe(s) sur ' + r.razored + ' (commande interne non disponible ?). Aucun morceau n’a été retiré' +
           (r.backup ? ' ; une copie de sauvegarde de la séquence se trouve dans le projet' : '') + '. Utilisez « Marqueurs seulement » puis coupez avec Ctrl+K.');
       }
       return 'Beat Cut terminé dans « ' + r.sequence + ' » : ' + r.razored + ' coupes, ' + r.removed + ' morceaux retirés' +
-        (r.markers ? ', ' + r.markers + ' marqueurs' : '') + '.' + (r.skipped ? '\n' + r.skipped + ' morceau(x) laissé(s) en place (hors segment).' : '') +
+        (r.markers ? ', ' + r.markers + ' marqueurs' : '') + '.' +
+        (r.perTrack ? '\nPar piste : ' + r.perTrack.map(function (x) { return x.name + ' ' + x.cuts + ' coupes / ' + x.pieces + ' plans gardés'; }).join(' · ') : '') +
+        (r.skipped ? '\n' + r.skipped + ' morceau(x) laissé(s) en place (hors segment).' : '') +
         (r.backup ? '\nCopie de sauvegarde créée' + (r.backupName ? ' : « ' + r.backupName + ' »' : '') + '. Lancez la lecture pour vérifier.' : '') + simNote();
     });
   }
@@ -538,6 +541,7 @@
     $('beatGo').addEventListener('click', runBeatCut);
     document.querySelectorAll('.cad').forEach(function (b) { b.addEventListener('click', function () { selectCadence(b.dataset.cadence); }); });
     $('beatOrder').addEventListener('change', updatePlan);
+    $('beatLayout').addEventListener('change', updatePlan);
     ['beatMode', 'beatSens', 'beatMin'].forEach(function (id) { $(id).addEventListener('change', function () { if (S.audio && S.beats) { detectMusicBeats(); updatePlan(); } }); });
     $('beatPreview').addEventListener('click', function () { play(S.audio.channels, { follow: true, clicks: planOverlay().beats.map(function (b) { return b.time; }) }); });
     $('beatMarkers').addEventListener('click', addBeatMarkers);

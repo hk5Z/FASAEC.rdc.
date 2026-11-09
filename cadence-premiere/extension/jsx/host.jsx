@@ -8,7 +8,7 @@
  */
 var cadence = (function () {
     var TICKS_PER_SECOND = 254016000000;
-    var VERSION = '0.2.2';
+    var VERSION = '0.2.3';
     var IMPORT_EXTENSIONS = ['mp4', 'm4v', 'mov', 'mxf', 'avi', 'mts', 'm2ts', 'mpg', 'mpeg', 'wmv', '3gp',
         'wav', 'mp3', 'aac', 'm4a', 'aif', 'aiff', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'gif', 'bmp'];
 
@@ -521,13 +521,15 @@ var cadence = (function () {
             }
             if (!found) { missing++; }
         }
-        var toRemove = [], skipped = 0;
+        // "all" (d\u00e9faut) : un seul plan visible par segment, retir\u00e9 de toutes les autres pistes.
+        // "stack" : seules les pistes au-dessus de l'angle choisi sont vid\u00e9es (la piste du bas reste continue).
+        var allTracks = a.layout !== 'stack', toRemove = [], skipped = 0;
         for (k = 0; k < segs.length && missing === 0; k++) {
             if (segs[k].keep === null || segs[k].keep === undefined) { continue; }
             var s0 = num(segs[k].start, 'd\u00e9but de segment'), s1 = num(segs[k].end, 'fin de segment');
             for (i = 0; i < tracks.length; i++) {
                 t = tracks[i];
-                if (t <= segs[k].keep) { continue; }
+                if (t === segs[k].keep || (!allTracks && t < segs[k].keep)) { continue; }
                 var cl = seq.videoTracks[t].clips;
                 for (c = 0; c < cl.numItems; c++) {
                     var st = cl[c].start.seconds, en = cl[c].end.seconds, mid = (st + en) / 2;
@@ -544,9 +546,19 @@ var cadence = (function () {
                 if (m) { m.name = 'Beat'; m.comments = 'Cadence \u2013 Beat Cut'; markers++; }
             }
         }
+        var perTrack = [], lo = segs.length ? num(segs[0].start, 'd\u00e9but') : 0, hi = segs.length ? num(segs[segs.length - 1].end, 'fin') : 0;
+        for (i = 0; i < tracks.length; i++) {
+            var nCuts = 0, pieces = 0, tc2 = seq.videoTracks[tracks[i]].clips;
+            for (k = 0; k < expected.length; k++) { if (expected[k].t === tracks[i]) { nCuts++; } }
+            for (c = 0; c < tc2.numItems; c++) {
+                var m2 = (tc2[c].start.seconds + tc2[c].end.seconds) / 2;
+                if (m2 > lo && m2 < hi) { pieces++; }
+            }
+            perTrack.push({ name: 'V' + (tracks[i] + 1), cuts: nCuts, pieces: pieces });
+        }
         return {
             backup: backup, backupName: backupName, razored: razored, missing: missing, removed: toRemove.length, skipped: skipped, markers: markers,
-            clipsBefore: before, clipsAfter: countClips(seq), sequence: seq.name
+            clipsBefore: before, clipsAfter: countClips(seq), sequence: seq.name, layout: allTracks ? 'all' : 'stack', perTrack: perTrack
         };
     }
 

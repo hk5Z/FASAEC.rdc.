@@ -104,6 +104,8 @@ function makeTestWav(file, { voice = true, clicks = true } = {}) {
   assert.equal(call.cuts.length, normalCuts);
   assert.equal(call.segments.length, normalCuts + 1);
   assert.equal(call.backup, true);
+  assert.equal(call.layout, 'all', 'toutes les pistes découpées par défaut');
+  assert.match(done, /Par piste : V1 \d+ coupes \/ \d+ plans gardés · V2 .* · V3 /);
   assert.equal(await markers(), normalCuts, 'un marqueur par coupe');
   step('Beat Cut appliqué après confirmation : ' + done.split('\n')[0]);
 

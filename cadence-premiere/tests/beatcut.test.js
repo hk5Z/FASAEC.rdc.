@@ -42,7 +42,7 @@ function makeTimeline({ cloneActivates = true, openWorks = true, razorWorks = tr
     return it;
   }
   const video = [], audio = [[], []];
-  for (let t = 0; t < 3; t++) {
+  for (let t = 0; t < Math.max(3, rushTracks); t++) {
     const arr = [];
     if (t < rushTracks) arr.push(item('MVI_00' + (33 + t) + '.MP4', 'Video', 0, 12, pi('rush' + t), arr));
     video.push(arr);
@@ -199,4 +199,47 @@ test('Sauvegarde : fonctionne aussi si la copie ne devient pas active', () => {
   assert.equal(r.ok, true, r.error);
   assert.equal(w.calls.filter(c => c[0] === 'openSequence').length, 0);
   assert.equal(r.data.missing, 0);
+});
+
+function runPlan(layout, rushTracks = 3) {
+  const w = makeTimeline({ rushTracks });
+  const ctx = w.call('getBeatCutContext').data;
+  const beats = []; for (let t = 0.5; t < 12; t += 0.5) beats.push(t);
+  const plan = D.planMulticam({ beats, range: ctx.range, tracks: ctx.tracks, every: 2, fps: 25 });
+  const args = { sequenceId: ctx.sequence.id, tracks: ctx.tracks.map(t => t.index), cuts: plan.cuts, segments: plan.segments };
+  if (layout) args.layout = layout;
+  const r = w.call('beatCutMulticam', args);
+  assert.equal(r.ok, true, r.error);
+  const has = (t, mid) => w.video[t].some(c => c.start.seconds < mid && c.end.seconds > mid);
+  return { w, r, plan, has };
+}
+
+test('Mode « toutes les pistes » (défaut) : chaque piste sélectionnée est découpée, un seul plan par segment', () => {
+  const { r, plan, has } = runPlan(undefined);
+  assert.equal(r.data.layout, 'all');
+  for (const s of plan.segments) {
+    const mid = (s.start + s.end) / 2;
+    assert.deepEqual([0, 1, 2].filter(t => has(t, mid)), [s.keep], `segment ${s.start}`);
+  }
+  assert.equal(r.data.perTrack.length, 3);
+  r.data.perTrack.forEach(p => {
+    assert.equal(p.cuts, plan.cuts.length, p.name + ' coupée à chaque temps');
+    assert.ok(p.pieces > 0 && p.pieces < plan.segments.length, `${p.name} : ${p.pieces} plans gardés sur ${plan.segments.length}`);
+  });
+});
+
+test('Mode « toutes les pistes » avec 5 pistes vidéo sélectionnées', () => {
+  const { r, plan, has } = runPlan(undefined, 5);
+  assert.deepEqual(r.data.perTrack.map(p => p.name), ['V1', 'V2', 'V3', 'V4', 'V5']);
+  assert.deepEqual([...new Set(plan.segments.map(s => s.keep))].sort(), [0, 1, 2, 3, 4]);
+  for (const s of plan.segments) {
+    const mid = (s.start + s.end) / 2;
+    assert.deepEqual([0, 1, 2, 3, 4].filter(t => has(t, mid)), [s.keep]);
+  }
+});
+
+test('Mode « superposé » : la piste du bas reste continue', () => {
+  const { r, plan, has } = runPlan('stack');
+  assert.equal(r.data.layout, 'stack');
+  for (const s of plan.segments) assert.ok(has(0, (s.start + s.end) / 2), 'V1 présente partout');
 });
