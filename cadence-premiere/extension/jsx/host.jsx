@@ -1,14 +1,14 @@
 /*
- * Cadence – script hôte ExtendScript pour Adobe Premiere Pro 2023 (23.x).
- * ExtendScript = ECMAScript 3 : pas de let/const, de fonctions fléchées, de JSON natif ni d'Array.indexOf.
+ * Cadence \u2013 script h\u00f4te ExtendScript pour Adobe Premiere Pro 2023 (23.x).
+ * ExtendScript = ECMAScript 3 : pas de let/const, de fonctions fl\u00e9ch\u00e9es, de JSON natif ni d'Array.indexOf.
  *
- * Chaque fonction publique renvoie une chaîne JSON : {"ok":true,"data":...} ou {"ok":false,"error":"..."}.
- * Les fonctions marquées « QE » utilisent le DOM QE de Premiere, NON documenté et NON pris en charge
- * par Adobe : leur effet est vérifié après coup avec l'API officielle quand c'est possible.
+ * Chaque fonction publique renvoie une cha\u00eene JSON : {"ok":true,"data":...} ou {"ok":false,"error":"..."}.
+ * Les fonctions marqu\u00e9es \u00ab QE \u00bb utilisent le DOM QE de Premiere, NON document\u00e9 et NON pris en charge
+ * par Adobe : leur effet est v\u00e9rifi\u00e9 apr\u00e8s coup avec l'API officielle quand c'est possible.
  */
 var cadence = (function () {
     var TICKS_PER_SECOND = 254016000000;
-    var VERSION = '0.1.0';
+    var VERSION = '0.1.1';
     var IMPORT_EXTENSIONS = ['mp4', 'm4v', 'mov', 'mxf', 'avi', 'mts', 'm2ts', 'mpg', 'mpeg', 'wmv', '3gp',
         'wav', 'mp3', 'aac', 'm4a', 'aif', 'aiff', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'psd', 'gif', 'bmp'];
 
@@ -58,8 +58,8 @@ var cadence = (function () {
             if (e && e.isUserError) {
                 msg = e.message;
             } else {
-                msg = 'Erreur renvoyée par Premiere Pro : ' + (e && e.message ? e.message : String(e)) +
-                    (e && e.line ? ' (ligne ' + e.line + ' du script hôte)' : '');
+                msg = 'Erreur renvoy\u00e9e par Premiere Pro : ' + (e && e.message ? e.message : String(e)) +
+                    (e && e.line ? ' (ligne ' + e.line + ' du script h\u00f4te)' : '');
             }
             return toJson({ ok: false, error: msg });
         }
@@ -73,22 +73,27 @@ var cadence = (function () {
 
     function num(v, label) {
         var n = Number(v);
-        if (isNaN(n) || !isFinite(n)) { fail('Valeur numérique invalide : ' + label + '.'); }
+        if (isNaN(n) || !isFinite(n)) { fail('Valeur num\u00e9rique invalide : ' + label + '.'); }
         return n;
     }
 
-    function ticks(seconds) { return String(Math.round(seconds * TICKS_PER_SECOND)); }
+    // createSubClip attend des objets Time (cf. exemple officiel PProPanel), pas des cha\u00eenes de ticks.
+    function timeAt(seconds) {
+        var t = new Time();
+        t.ticks = String(Math.round(seconds * TICKS_PER_SECOND));
+        return t;
+    }
 
     function requireProject() {
-        if (!app.project) { fail('Aucun projet Premiere Pro n’est ouvert.'); }
+        if (!app.project) { fail('Aucun projet Premiere Pro n\u2019est ouvert.'); }
         return app.project;
     }
 
     function activeSequence(expectedId) {
         var seq = requireProject().activeSequence;
-        if (!seq) { fail('Aucune séquence active. Ouvrez une séquence dans le panneau Montage, cliquez dedans, puis réessayez.'); }
+        if (!seq) { fail('Aucune s\u00e9quence active. Ouvrez une s\u00e9quence dans le panneau Montage, cliquez dedans, puis r\u00e9essayez.'); }
         if (expectedId && String(seq.sequenceID) !== String(expectedId)) {
-            fail('La séquence active a changé depuis l’analyse (« ' + seq.name + ' »). Rien n’a été modifié : relancez l’opération.');
+            fail('La s\u00e9quence active a chang\u00e9 depuis l\u2019analyse (\u00ab ' + seq.name + ' \u00bb). Rien n\u2019a \u00e9t\u00e9 modifi\u00e9 : relancez l\u2019op\u00e9ration.');
         }
         return seq;
     }
@@ -140,7 +145,7 @@ var cadence = (function () {
         for (i = 0; i < root.children.numItems; i++) {
             if (root.children[i].type === ProjectItemType.BIN && root.children[i].name === name) { return root.children[i]; }
         }
-        fail('Impossible de créer le chutier « ' + name + ' ».');
+        fail('Impossible de cr\u00e9er le chutier \u00ab ' + name + ' \u00bb.');
     }
 
     function normPath(p) { return String(p).replace(/\\/g, '/').toLowerCase(); }
@@ -151,7 +156,7 @@ var cadence = (function () {
             child = bin.children[i];
             try {
                 if (child.type !== ProjectItemType.BIN && normPath(child.getMediaPath()) === target) { return child; }
-            } catch (e) { /* élément sans chemin média */ }
+            } catch (e) { /* \u00e9l\u00e9ment sans chemin m\u00e9dia */ }
         }
         return null;
     }
@@ -183,15 +188,15 @@ var cadence = (function () {
     function getSelectedClip() {
         var seq = activeSequence(), sel = seq.getSelection(), item = null, i;
         if (!sel || sel.length === 0) {
-            fail('Aucun clip sélectionné. Cliquez sur un clip (audio ou vidéo avec son) dans la séquence « ' + seq.name + ' ».');
+            fail('Aucun clip s\u00e9lectionn\u00e9. Cliquez sur un clip (audio ou vid\u00e9o avec son) dans la s\u00e9quence \u00ab ' + seq.name + ' \u00bb.');
         }
         for (i = 0; i < sel.length; i++) { if (sel[i].mediaType === 'Audio') { item = sel[i]; break; } }
         if (!item) { item = sel[0]; }
         var pi = item.projectItem;
-        if (!pi) { fail('Le clip sélectionné n’a pas de média source (titre, calque d’effets, séquence imbriquée…).'); }
+        if (!pi) { fail('Le clip s\u00e9lectionn\u00e9 n\u2019a pas de m\u00e9dia source (titre, calque d\u2019effets, s\u00e9quence imbriqu\u00e9e\u2026).'); }
         var path = '';
         try { path = pi.getMediaPath(); } catch (e) { path = ''; }
-        if (!path) { fail('Impossible d’obtenir le fichier du clip « ' + item.name + ' » (média hors ligne, séquence imbriquée ou élément généré).'); }
+        if (!path) { fail('Impossible d\u2019obtenir le fichier du clip \u00ab ' + item.name + ' \u00bb (m\u00e9dia hors ligne, s\u00e9quence imbriqu\u00e9e ou \u00e9l\u00e9ment g\u00e9n\u00e9r\u00e9).'); }
         var reversed = false;
         try { reversed = !!item.isSpeedReversed(); } catch (e2) { reversed = false; }
         return {
@@ -219,8 +224,8 @@ var cadence = (function () {
 
     function addMarkers(a) {
         var seq = activeSequence(a.sequenceId), list = a.markers || [], before = seq.markers.numMarkers, created = 0, i, m, t;
-        if (!isArray(list) || list.length === 0) { fail('Aucun marqueur à ajouter.'); }
-        if (list.length > 2000) { fail('Trop de marqueurs (' + list.length + ') : 2000 au maximum par opération.'); }
+        if (!isArray(list) || list.length === 0) { fail('Aucun marqueur \u00e0 ajouter.'); }
+        if (list.length > 2000) { fail('Trop de marqueurs (' + list.length + ') : 2000 au maximum par op\u00e9ration.'); }
         for (i = 0; i < list.length; i++) {
             t = num(list[i].time, 'temps du marqueur');
             if (t < 0) { continue; }
@@ -245,21 +250,21 @@ var cadence = (function () {
         return { sequence: seq.name, before: before, deleted: before - markers.numMarkers, remaining: markers.numMarkers };
     }
 
-    /** QE (non documenté) : coupe toutes les pistes aux temps donnés, après duplication de sauvegarde. */
+    /** QE (non document\u00e9) : coupe toutes les pistes aux temps donn\u00e9s, apr\u00e8s duplication de sauvegarde. */
     function razorAtTimes(a) {
         var seq = activeSequence(a.sequenceId), id = String(seq.sequenceID), times = a.times || [], i, k, backup = false;
         if (!isArray(times) || times.length === 0) { fail('Aucun temps de coupe fourni.'); }
         if (times.length > 1000) { fail('Trop de coupes (' + times.length + ') : 1000 au maximum.'); }
         if (a.backup !== false) {
             backup = !!seq.clone();
-            if (!backup) { fail('La copie de sauvegarde de la séquence a échoué : aucune coupe effectuée.'); }
+            if (!backup) { fail('La copie de sauvegarde de la s\u00e9quence a \u00e9chou\u00e9 : aucune coupe effectu\u00e9e.'); }
             if (!app.project.activeSequence || String(app.project.activeSequence.sequenceID) !== id) {
-                fail('La séquence active a changé après la sauvegarde : aucune coupe effectuée.');
+                fail('La s\u00e9quence active a chang\u00e9 apr\u00e8s la sauvegarde : aucune coupe effectu\u00e9e.');
             }
         }
         app.enableQE();
         var qs = qe.project.getActiveSequence();
-        if (!qs) { fail('Le DOM QE ne trouve pas la séquence active.'); }
+        if (!qs) { fail('Le DOM QE ne trouve pas la s\u00e9quence active.'); }
         var before = countClips(seq), done = [];
         for (i = 0; i < times.length; i++) {
             var tc = formatTimecode(seq, num(times[i], 'temps de coupe'));
@@ -270,38 +275,38 @@ var cadence = (function () {
         return { backup: backup, cuts: done.length, timecodes: done.slice(0, 5), clipsBefore: before, clipsAfter: countClips(seq) };
     }
 
-    /** API officielle : crée une NOUVELLE séquence faite des segments conservés (la séquence d'origine n'est pas touchée). */
+    /** API officielle : cr\u00e9e une NOUVELLE s\u00e9quence faite des segments conserv\u00e9s (la s\u00e9quence d'origine n'est pas touch\u00e9e). */
     function createCutSequence(a) {
         requireProject();
         var segs = a.segments || [], i;
-        if (!isArray(segs) || segs.length === 0) { fail('Aucun segment à conserver.'); }
+        if (!isArray(segs) || segs.length === 0) { fail('Aucun segment \u00e0 conserver.'); }
         if (segs.length > 500) { fail('Trop de segments (' + segs.length + ') : 500 au maximum.'); }
         var pi = findProjectItem(app.project.rootItem, a.projectItemNodeId);
-        if (!pi) { fail('Le média source n’a pas été retrouvé dans le projet (supprimé ou déplacé ?).'); }
-        var base = String(a.name || pi.name), bin = getOrCreateBin('Cadence – Voice Cut'), subs = [];
+        if (!pi) { fail('Le m\u00e9dia source n\u2019a pas \u00e9t\u00e9 retrouv\u00e9 dans le projet (supprim\u00e9 ou d\u00e9plac\u00e9 ?).'); }
+        var base = String(a.name || pi.name), bin = getOrCreateBin('Cadence \u2013 Voice Cut'), subs = [];
         for (i = 0; i < segs.length; i++) {
-            var s = num(segs[i].start, 'début de segment'), e = num(segs[i].end, 'fin de segment');
+            var s = num(segs[i].start, 'd\u00e9but de segment'), e = num(segs[i].end, 'fin de segment');
             if (e <= s) { continue; }
-            var sub = pi.createSubClip(base + ' – ' + (i + 1), ticks(s), ticks(e), 1, 1, 1);
-            if (!sub) { fail('Création du sous-élément ' + (i + 1) + ' impossible.'); }
-            try { sub.moveBin(bin); } catch (err) { /* le sous-élément reste à la racine */ }
+            var sub = pi.createSubClip(base + ' \u2013 ' + (i + 1), timeAt(s), timeAt(e), 1, 1, 1);
+            if (!sub) { fail('Cr\u00e9ation du sous-\u00e9l\u00e9ment ' + (i + 1) + ' impossible.'); }
+            try { sub.moveBin(bin); } catch (err) { /* le sous-\u00e9l\u00e9ment reste \u00e0 la racine */ }
             subs.push(sub);
         }
-        var seqName = base + ' – sans silences';
+        var seqName = base + ' \u2013 sans silences';
         app.project.createNewSequenceFromClips(seqName, subs, bin);
         var found = false;
         for (i = 0; i < app.project.sequences.numSequences; i++) {
             if (app.project.sequences[i].name === seqName) { found = true; }
         }
-        if (!found) { fail('Premiere n’a pas créé la séquence « ' + seqName + ' ». Les sous-éléments sont dans le chutier « Cadence – Voice Cut ».'); }
-        return { sequenceName: seqName, segments: subs.length, bin: 'Cadence – Voice Cut' };
+        if (!found) { fail('Premiere n\u2019a pas cr\u00e9\u00e9 la s\u00e9quence \u00ab ' + seqName + ' \u00bb. Les sous-\u00e9l\u00e9ments sont dans le chutier \u00ab Cadence \u2013 Voice Cut \u00bb.'); }
+        return { sequenceName: seqName, segments: subs.length, bin: 'Cadence \u2013 Voice Cut' };
     }
 
     function chooseFiles() {
         var filter = Folder.fs === 'Windows'
-            ? 'Médias:*.' + IMPORT_EXTENSIONS.join(';*.') + ',Tous les fichiers:*.*'
+            ? 'M\u00e9dias:*.' + IMPORT_EXTENSIONS.join(';*.') + ',Tous les fichiers:*.*'
             : null;
-        var files = File.openDialog('Importer des médias dans le projet', filter, true), out = [], i;
+        var files = File.openDialog('Importer des m\u00e9dias dans le projet', filter, true), out = [], i;
         if (!files) { return { paths: [] }; }
         if (!isArray(files) && files.length === undefined) { files = [files]; }
         for (i = 0; i < files.length; i++) { out.push(files[i].fsName); }
@@ -329,13 +334,13 @@ var cadence = (function () {
         requireProject();
         var path = String(a.path || '');
         if (!path || !(new File(path)).exists) { fail('Fichier rendu introuvable : ' + path); }
-        var bin = getOrCreateBin('Cadence – rendus');
+        var bin = getOrCreateBin('Cadence \u2013 rendus');
         app.project.importFiles([path], true, bin, false);
         var item = findByMediaPath(bin, path);
-        if (!item) { fail('Premiere n’a pas importé le fichier : ' + path); }
+        if (!item) { fail('Premiere n\u2019a pas import\u00e9 le fichier : ' + path); }
         var res = { imported: true, name: item.name, bin: bin.name, placed: false };
         if (!a.place) { return res; }
-        var seq = activeSequence(a.sequenceId), t0 = num(a.time, 'position'), t1 = t0 + num(a.duration, 'durée'), i, c;
+        var seq = activeSequence(a.sequenceId), t0 = num(a.time, 'position'), t1 = t0 + num(a.duration, 'dur\u00e9e'), i, c;
         for (i = 0; i < seq.audioTracks.numTracks; i++) {
             var track = seq.audioTracks[i], free = true;
             for (c = 0; c < track.clips.numItems; c++) {
@@ -348,18 +353,18 @@ var cadence = (function () {
                 return res;
             }
         }
-        res.placeError = 'Aucune piste audio libre sur cette plage : le fichier est importé dans le chutier « ' + bin.name + ' » mais n’a pas été placé. Ajoutez une piste audio puis glissez-le.';
+        res.placeError = 'Aucune piste audio libre sur cette plage : le fichier est import\u00e9 dans le chutier \u00ab ' + bin.name + ' \u00bb mais n\u2019a pas \u00e9t\u00e9 plac\u00e9. Ajoutez une piste audio puis glissez-le.';
         return res;
     }
 
-    /** QE (non documenté) : change la vitesse des clips sélectionnés, puis vérifie avec getSpeed(). */
+    /** QE (non document\u00e9) : change la vitesse des clips s\u00e9lectionn\u00e9s, puis v\u00e9rifie avec getSpeed(). */
     function setClipSpeed(a) {
         var seq = activeSequence(a.sequenceId), speed = num(a.speed, 'vitesse'), sel = seq.getSelection(), results = [], i, j;
-        if (speed < 0.1 || speed > 10) { fail('Vitesse hors limites (×0,1 à ×10).'); }
-        if (!sel || sel.length === 0) { fail('Aucun clip sélectionné dans la séquence.'); }
+        if (speed < 0.1 || speed > 10) { fail('Vitesse hors limites (\u00d70,1 \u00e0 \u00d710).'); }
+        if (!sel || sel.length === 0) { fail('Aucun clip s\u00e9lectionn\u00e9 dans la s\u00e9quence.'); }
         app.enableQE();
         var qs = qe.project.getActiveSequence();
-        if (!qs) { fail('Le DOM QE ne trouve pas la séquence active.'); }
+        if (!qs) { fail('Le DOM QE ne trouve pas la s\u00e9quence active.'); }
         for (i = 0; i < sel.length; i++) {
             var item = sel[i], pos = locateTrackItem(seq, item), oldSpeed = item.getSpeed();
             if (!pos) { continue; }

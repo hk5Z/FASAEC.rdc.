@@ -81,7 +81,7 @@ Ce réglage autorise **toutes** les extensions CEP 11 non signées pour votre co
 
 ## 6. Utilisation
 
-Commencez par **sélectionner un clip** dans la séquence active, puis cliquez sur **Charger le clip sélectionné**. Le panneau lit l’audio de la portion utilisée (du point d’entrée au point de sortie). La forme d’onde affiche ensuite les propositions. **Aucune analyse ne modifie la séquence.** Chaque action qui touche au projet ouvre d’abord une **demande de confirmation** qui décrit ce qui va changer.
+Commencez par **sélectionner un clip** dans la séquence active. Ensuite, ouvrez BEAT CUT ou VOICE CUT et cliquez sur **Analyser** : le clip sélectionné est chargé automatiquement. Vous pouvez aussi cliquer d’abord sur **Charger le clip sélectionné**. Le panneau lit l’audio de la portion utilisée (du point d’entrée au point de sortie), puis la forme d’onde affiche les propositions. **Aucune analyse ne modifie la séquence.** Chaque action qui touche au projet ouvre d’abord une **demande de confirmation** qui décrit ce qui va changer.
 
 | Bouton | Ce qu’il fait | Ce qui est modifié (après confirmation) |
 |---|---|---|
@@ -92,8 +92,12 @@ Commencez par **sélectionner un clip** dans la séquence active, puis cliquez s
 | **IMPORTER** | Sélecteur de fichiers Windows, puis liste et confirmation. Les extensions non reconnues et les fichiers absents sont signalés. | Les médias sont ajoutés au chutier courant du projet, référencés et non copiés. |
 | **EFFACER LES MARQUEURS** | Compte les marqueurs de la séquence active. | Après confirmation, supprime **uniquement** les marqueurs de **la séquence active**. Les marqueurs des clips et des autres séquences restent. |
 
-### FFmpeg (facultatif, hors connexion)
-Le panneau lit les **WAV** avec son propre décodeur et les **MP3/M4A/AAC/OGG** avec Web Audio. Pour l’audio des **vidéos** (MP4, MOV, MXF…), il utilise **FFmpeg installé localement**. Installez-le (par exemple dans `C:\ffmpeg\bin\ffmpeg.exe`), puis indiquez son chemin dans **Réglages et diagnostic** si `ffmpeg` n’est pas dans le PATH. Sans FFmpeg, exportez l’audio en WAV et analysez ce WAV. Aucune fonction n’utilise Internet.
+### Formats lus (hors connexion)
+- **WAV** : décodeur intégré au panneau.
+- **MP3, M4A, AAC, OGG** et **vidéos MP4/MOV avec audio AAC** (jusqu’à 1 Go) : décodeur intégré au moteur CEP. La documentation Adobe indique que CEP lit le MP4 H.264/AAC. **FFmpeg n’est pas nécessaire** pour ces fichiers.
+- **Autres cas** (MXF, audio PCM dans un MOV, fichiers de plus de 1 Go…) : le panneau utilise **FFmpeg installé localement**, s’il est présent. Indiquez le chemin de `ffmpeg.exe` dans **Réglages et diagnostic** s’il n’est pas dans le PATH. Sans FFmpeg, exportez l’audio en WAV.
+
+Aucune fonction n’utilise Internet.
 
 ## 7. Ce qui n’est pas faisable avec l’API de Premiere 23.x, et les alternatives
 
@@ -117,7 +121,7 @@ Le panneau lit les **WAV** avec son propre décodeur et les **MP3/M4A/AAC/OGG** 
 - **Vérifier la version CEP réelle** : *Réglages et diagnostic* affiche « PPRO 23.x · CEP 11.x ».
 - **« Aucune séquence active »** : cliquez dans le panneau Montage pour donner le focus à la séquence.
 - **« Aucun clip sélectionné »** : sélectionnez un clip dans la timeline, pas dans le panneau Projet.
-- **« FFmpeg est introuvable »** : voir le § 6 (FFmpeg) ou utilisez un WAV.
+- **« Le décodeur intégré ne lit pas l’audio… FFmpeg est introuvable »** : le codec audio du fichier n’est pas lu par CEP. Installez FFmpeg (§ 6) ou exportez l’audio en WAV.
 - **« La séquence active a changé »** : le panneau refuse d’agir sur une autre séquence que celle du clip analysé. Rouvrez-la ou rechargez le clip.
 - **Une fonction expérimentale (QE) échoue** : le panneau l’indique, la vitesse relue faisant foi. Utilisez l’alternative proposée.
 
@@ -127,14 +131,14 @@ Dans le dossier `cadence-premiere` (Node.js 18 ou plus) :
 
 ```
 npm install                 # outils de test seulement (acorn, xmllint-wasm, playwright-core)
-npm test                    # 28 tests Node : DSP, script hôte sur DOM simulé, manifeste, chargeur audio/FFmpeg
+npm test                    # 31 tests Node : DSP, script hôte sur DOM simulé, manifeste, chargeur audio (MP4, FFmpeg)
 npm run validate:manifest   # validation XSD Adobe (télécharge le schéma une fois)
 npm run test:ui             # interface dans Chrome headless (CHROME_PATH si Chrome n’est pas trouvé)
 ```
 
 **Check-list à faire dans Premiere Pro 23.x** (projet de test, enregistré au préalable) :
-1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.1.0.
-2. Chargez un clip WAV, puis un clip MP4 (avec FFmpeg). Comparez la forme d’onde et la durée affichée avec la timeline.
+1. Le panneau apparaît dans Fenêtre > Extensions. Le diagnostic affiche PPRO 23.x, CEP 11 et le script hôte 0.1.1.
+2. Chargez un clip WAV, puis un clip MP4 **sans FFmpeg** : l’état doit indiquer « décodeur intégré ». Comparez la forme d’onde et la durée affichée avec la timeline.
 3. Ajoutez les marqueurs Beat Cut : leur position doit tomber sur les temps à l’écoute.
 4. Marquez les silences, puis créez la séquence sans silences. Contrôlez les raccords, en particulier sur un média dont le timecode ne commence pas à 0.
 5. Améliorer la voix : le fichier est écrit dans `Cadence_Rendus`, importé et placé sur une piste libre, aligné avec le clip.

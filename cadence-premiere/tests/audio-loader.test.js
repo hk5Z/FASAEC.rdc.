@@ -9,8 +9,8 @@ const vm = require('vm');
 const { execFileSync } = require('child_process');
 const D = require('../extension/js/dsp.js');
 
-function loadAudioModule() {
-  const window = { CadenceDSP: D, require, process, CadenceBridge: { inCEP: true } };
+function loadAudioModule(extraWindow = {}) {
+  const window = { CadenceDSP: D, require, process, CadenceBridge: { inCEP: true }, ...extraWindow };
   const ctx = vm.createContext({ window, Buffer, Promise, setTimeout, Date, Math, Float32Array, Uint8Array, DataView, ArrayBuffer, String, Number, Error, RegExp, JSON });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '..', 'extension', 'js', 'audio.js'), 'utf8'), ctx);
   return window.CadenceAudio;
@@ -57,5 +57,44 @@ test('Messages clairs : fichier absent, format inconnu, FFmpeg introuvable', asy
   process.env.PATH = '';
   try {
     await assert.rejects(A.loadPath(fakeMov, 0, 1, { ffmpegPath: path.join(dir, 'nope.exe') }), /FFmpeg est introuvable/);
+  } finally { process.env.PATH = savedPath; }
+});
+
+// Simule le décodeur Web Audio de CEP (absent de Node) pour vérifier l'ordre : décodeur intégré, puis FFmpeg.
+function fakeOfflineAudioContext(works, seen) {
+  return function () {
+    this.decodeAudioData = (ab, ok, ko) => {
+      seen.push(ab.byteLength);
+      if (!works) return ko(new Error('codec'));
+      const len = sr * 4, data = new Float32Array(len).map((_, i) => 0.5 * Math.sin(2 * Math.PI * 440 * i / sr));
+      ok({ sampleRate: sr, numberOfChannels: 1, getChannelData: () => data });
+    };
+  };
+}
+
+test('Vidéo : décodeur intégré utilisé en priorité, sans FFmpeg', async () => {
+  const mov = path.join(dir, 'interview.mov'); fs.writeFileSync(mov, Buffer.alloc(1234));
+  const seen = [];
+  const A = loadAudioModule({ OfflineAudioContext: fakeOfflineAudioContext(true, seen) });
+  const savedPath = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    const r = await A.loadPath(mov, 1, 2.5);
+    assert.equal(r.decoder, 'décodeur intégré');
+    assert.deepEqual(seen, [1234]);
+    assert.equal(r.offset, 1);
+    assert.equal(r.channels[0].length, 1.5 * sr);
+  } finally { process.env.PATH = savedPath; }
+});
+
+test('Vidéo : repli FFmpeg si le décodeur intégré échoue, message clair sinon', async () => {
+  const mov = path.join(dir, 'interview2.mov'); fs.writeFileSync(mov, Buffer.alloc(10));
+  const seen = [];
+  const A = loadAudioModule({ OfflineAudioContext: fakeOfflineAudioContext(false, seen) });
+  const savedPath = process.env.PATH;
+  process.env.PATH = '';
+  try {
+    await assert.rejects(A.loadPath(mov, 0, 1, { ffmpegPath: path.join(dir, 'nope.exe') }), /décodeur intégré ne lit pas.*FFmpeg est introuvable/s);
+    assert.equal(seen.length, 1);
   } finally { process.env.PATH = savedPath; }
 });

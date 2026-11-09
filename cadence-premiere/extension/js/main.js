@@ -93,17 +93,23 @@
     return 'Source chargée (' + audio.decoder + ') : crête ' + n2(st.peakDb) + ' dBFS, RMS ' + n2(st.rmsDb) + ' dBFS.' + warn;
   }
 
-  function loadSelectedClip() {
-    return task('Lecture du clip sélectionné', async function () {
-      var clip = await Bridge.call('getSelectedClip');
-      if (clip.reversed) throw new Error('Le clip « ' + clip.name + ' » est lu à l’envers : non pris en charge.');
-      if (clip.outPoint - clip.inPoint <= 0.05) throw new Error('Le clip sélectionné est trop court.');
-      status('Décodage de l’audio de « ' + clip.name + ' »…', 'busy');
-      await nextFrame();
-      var audio = await A.loadPath(clip.mediaPath, clip.inPoint, clip.outPoint, { ffmpegPath: $('ffmpegPath').value.trim() });
-      var extra = clip.selectionCount > 1 ? '\n' + clip.selectionCount + ' éléments sélectionnés : seul « ' + clip.name + ' » (' + clip.mediaType + ') est analysé.' : '';
-      return setSource(clip, audio) + extra;
-    });
+  async function loadClipCore() {
+    var clip = await Bridge.call('getSelectedClip');
+    if (clip.reversed) throw new Error('Le clip « ' + clip.name + ' » est lu à l’envers : non pris en charge.');
+    if (clip.outPoint - clip.inPoint <= 0.05) throw new Error('Le clip sélectionné est trop court.');
+    status('Décodage de l’audio de « ' + clip.name + ' »…', 'busy');
+    await nextFrame();
+    var audio = await A.loadPath(clip.mediaPath, clip.inPoint, clip.outPoint, { ffmpegPath: $('ffmpegPath').value.trim() });
+    var extra = clip.selectionCount > 1 ? '\n' + clip.selectionCount + ' éléments sélectionnés : seul « ' + clip.name + ' » (' + clip.mediaType + ') est analysé.' : '';
+    return setSource(clip, audio) + extra;
+  }
+
+  function loadSelectedClip() { return task('Lecture du clip sélectionné', loadClipCore); }
+
+  // Dans Premiere, les analyses chargent d'elles-mêmes le clip sélectionné si aucune source n'est prête.
+  async function ensureSource() {
+    if (!S.audio && Bridge.inCEP) await loadClipCore();
+    requireSource();
   }
 
   function loadBrowserFile(file) {
@@ -158,7 +164,7 @@
 
   function analyzeBeats() {
     return task('Analyse des temps forts', async function () {
-      requireSource();
+      await ensureSource();
       S.beats = D.detectBeats(S.mono, S.audio.sampleRate, {
         mode: $('beatMode').value, sensitivity: ($('beatSens').value - 1) / 9,
         minInterval: Number($('beatMin').value) || 0.25, every: Number($('beatEvery').value) || 1
@@ -231,7 +237,7 @@
 
   function analyzeVoice() {
     return task('Détection des silences', async function () {
-      requireSource();
+      await ensureSource();
       S.regions = D.detectSilences(S.mono, S.audio.sampleRate, {
         thresholdDb: Number($('voiceThr').value), minSilence: Number($('voiceMin').value) || 0.5, padding: Number($('voicePad').value) || 0
       }).map(function (r) { r.enabled = true; return r; });
@@ -258,7 +264,7 @@
 
   function createCutSequence() {
     return task('Création de la séquence sans silences', async function () {
-      requireSource();
+      await ensureSource();
       if (S.clip.speed !== 1) throw new Error('Clip avec changement de vitesse : séquence sans silences non disponible. Utilisez « Marquer les silences ».');
       var regs = enabledRegions(), keep = D.keptSegments(regs, S.audio.duration).map(function (s) {
         return { start: S.audio.offset + s.start, end: S.audio.offset + s.end };
@@ -286,7 +292,7 @@
 
   function runEnhance() {
     return task('Traitement de la voix', async function () {
-      requireSource();
+      await ensureSource();
       var opts = {};
       document.querySelectorAll('#enhanceSteps input').forEach(function (i) { opts[i.dataset.step] = i.checked; });
       S.enhanced = D.processVoice(S.audio.channels, S.audio.sampleRate, opts);
@@ -348,7 +354,7 @@
 
   function renderStretch() {
     return task('Calcul de la version accélérée', async function () {
-      requireSource();
+      await ensureSource();
       var sp = speedValue();
       S.stretched = { speed: sp, channels: D.timeStretch(S.audio.channels, S.audio.sampleRate, sp) };
       $('speedResult').textContent = 'Version ×' + n2(sp, 2) + ' : ' + fmt(S.audio.duration) + ' → ' + fmt(S.stretched.channels[0].length / S.audio.sampleRate) + ', hauteur conservée (WSOLA). Audio seulement : la vidéo n’est pas accélérée.';
@@ -452,7 +458,7 @@
     $('voiceThr').addEventListener('input', function () { $('voiceThrOut').textContent = this.value + ' dB'; });
     $('voiceSuggest').addEventListener('click', function () {
       task('Calcul du seuil', async function () {
-        requireSource();
+        await ensureSource();
         var s = D.suggestThreshold(S.mono, S.audio.sampleRate);
         $('voiceThr').value = s.thresholdDb; $('voiceThrOut').textContent = s.thresholdDb + ' dB';
         return 'Seuil suggéré : ' + s.thresholdDb + ' dB (bruit de fond ≈ ' + Math.round(s.noiseDb) + ' dB, parole ≈ ' + Math.round(s.speechDb) + ' dB).';

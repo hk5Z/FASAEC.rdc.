@@ -9,6 +9,7 @@
     : (root.cep_node && typeof root.cep_node.require === 'function' ? root.cep_node.require : null);
 
   var MAX_SECONDS = 15 * 60;
+  var MAX_NATIVE_VIDEO_BYTES = 1e9;
   var WEB_AUDIO_EXT = ['mp3', 'm4a', 'aac', 'ogg', 'oga', 'flac', 'opus', 'webm'];
   var VIDEO_EXT = ['mp4', 'm4v', 'mov', 'mxf', 'avi', 'mts', 'm2ts', 'mpg', 'mpeg', 'wmv', '3gp', 'mkv'];
 
@@ -111,7 +112,24 @@
     if (VIDEO_EXT.indexOf(e) < 0 && WEB_AUDIO_EXT.indexOf(e) < 0 && e !== 'wav' && e !== 'aif' && e !== 'aiff') {
       return Promise.reject(new Error('Format .' + e + ' non pris en charge pour l’analyse audio.'));
     }
-    return runFfmpeg(path, start, end, opts.ffmpegPath).then(function (d) { return finish(d, 0, null, 'FFmpeg'); }).then(shift(start));
+    var viaFfmpeg = function () {
+      return runFfmpeg(path, start, end, opts.ffmpegPath).then(function (d) { return finish(d, 0, null, 'FFmpeg'); }).then(shift(start));
+    };
+    // Le moteur CEP lit le MP4 H.264/AAC (doc. Adobe) : on tente d'abord le décodeur intégré, sans FFmpeg.
+    if (VIDEO_EXT.indexOf(e) >= 0 && size <= MAX_NATIVE_VIDEO_BYTES) {
+      var vb = fs.readFileSync(path);
+      return decodeWithWebAudio(vb.buffer.slice(vb.byteOffset, vb.byteOffset + vb.byteLength)).then(function (d) {
+        return finish(d, start, end, 'décodeur intégré');
+      }, function () {
+        return viaFfmpeg().catch(function (err) {
+          throw new Error('Le décodeur intégré ne lit pas l’audio de ce fichier (.' + e + ', codec non AAC ?). ' + err.message);
+        });
+      });
+    }
+    return viaFfmpeg().catch(function (err) {
+      if (VIDEO_EXT.indexOf(e) >= 0) throw new Error('Vidéo trop lourde pour le décodeur intégré (' + Math.round(size / 1e6) + ' Mo, max ' + Math.round(MAX_NATIVE_VIDEO_BYTES / 1e6) + ' Mo). ' + err.message);
+      throw err;
+    });
   }
 
   function shift(start) { return function (r) { r.offset = start || 0; return r; }; }

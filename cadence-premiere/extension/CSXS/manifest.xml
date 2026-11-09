@@ -5,10 +5,10 @@
   CEP 11 : documenté par Adobe pour Premiere 15.4 et suivantes ; CEP 12 seulement à partir de Premiere 25.0.
   Schéma : ExtensionManifest_v_7_0.xsd (Adobe indique qu'il reste valable après CEP 7).
 -->
-<ExtensionManifest Version="7.0" ExtensionBundleId="fr.cadence.montage" ExtensionBundleVersion="0.1.0"
+<ExtensionManifest Version="7.0" ExtensionBundleId="fr.cadence.montage" ExtensionBundleVersion="0.1.1"
   ExtensionBundleName="Cadence" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <ExtensionList>
-    <Extension Id="fr.cadence.montage.panel" Version="0.1.0"/>
+    <Extension Id="fr.cadence.montage.panel" Version="0.1.1"/>
   </ExtensionList>
   <ExecutionEnvironment>
     <HostList>

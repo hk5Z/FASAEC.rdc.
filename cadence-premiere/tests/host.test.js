@@ -17,6 +17,7 @@ const SRC = fs.readFileSync(HOST, 'utf8');
 class Time {
   constructor(s = 0) { this.seconds = s; }
   get ticks() { return String(Math.round(this.seconds * 254016000000)); }
+  set ticks(v) { this.seconds = Number(v) / 254016000000; }
   getFormatted(frameRate, fmt) {
     const fps = Math.round(1 / frameRate.seconds), f = Math.round(this.seconds * fps);
     const p = n => String(n).padStart(2, '0');
@@ -42,7 +43,10 @@ function makeWorld(opts = {}) {
   let nodeSeq = 100;
   const calls = [];
   const media = { nodeId: 'pi-1', name: 'interview.mp4', type: 1, getMediaPath: () => 'C:\\media\\interview.mp4',
-    createSubClip(name, s, e, hard, a, v) { calls.push(['createSubClip', name, s, e]); return { nodeId: 'sub-' + (nodeSeq++), name, type: 1, moveBin(b) { calls.push(['moveBin', name, b.name]); } }; } };
+    createSubClip(name, s, e, hard, a, v) {
+      // Comme l'exemple officiel PProPanel : des objets Time sont attendus.
+      if (!(s instanceof Time) || !(e instanceof Time)) throw new Error('createSubClip : objets Time attendus');
+      calls.push(['createSubClip', name, s.ticks, e.ticks]); return { nodeId: 'sub-' + (nodeSeq++), name, type: 1, moveBin(b) { calls.push(['moveBin', name, b.name]); } }; } };
   const rootChildren = [media];
   const root = { name: 'root', type: 3, nodeId: 'root', children: collection(rootChildren),
     createBin(name) { const arr = []; rootChildren.push({ name, type: 2, nodeId: 'bin-' + (nodeSeq++), children: collection(arr), _arr: arr }); } };
@@ -96,6 +100,10 @@ function makeWorld(opts = {}) {
   const call = (fn, args) => JSON.parse(vm.runInContext('cadence.' + fn + '(' + JSON.stringify(args || {}) + ')', ctx));
   return { call, calls, seq, rootChildren, sequences };
 }
+
+test('host.jsx : uniquement ASCII (pas de souci d’encodage dans ExtendScript)', () => {
+  assert.doesNotMatch(SRC, /[^\x00-\x7f]/);
+});
 
 test('host.jsx : syntaxe ECMAScript 3 (ExtendScript)', () => {
   assert.doesNotThrow(() => acorn.parse(SRC, { ecmaVersion: 3, sourceType: 'script' }));

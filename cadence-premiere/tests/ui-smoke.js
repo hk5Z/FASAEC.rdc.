@@ -36,6 +36,9 @@ function makeTestWav(file, { voice = true, clicks = true } = {}) {
   const wav = path.join(OUT, 'test_musique.wav'), voiceWav = path.join(OUT, 'test_voix.wav');
   makeTestWav(wav, { voice: false });
   makeTestWav(voiceWav, { clicks: false });
+  // Voice Cut est testé sur une vidéo MP4 (H.264 + AAC) : décodage par le moteur Chromium, sans FFmpeg.
+  const voiceMp4 = path.join(OUT, 'test_voix.mp4');
+  require('child_process').execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:d=12', '-i', voiceWav, '-shortest', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '128k', '-y', voiceMp4]);
 
   const browser = await chromium.launch({ executablePath: CHROME, args: ['--allow-file-access-from-files', '--autoplay-policy=no-user-gesture-required'] });
   const page = await browser.newPage({ viewport: { width: 360, height: 760 }, acceptDownloads: true });
@@ -92,8 +95,9 @@ function makeTestWav(file, { voice = true, clicks = true } = {}) {
   await waitStatus(/annulée/);
   step('Coupe expérimentale : sauvegarde annoncée, annulation respectée');
 
-  await page.setInputFiles('#fileInput', voiceWav);
-  await waitStatus(/Source chargée/);
+  await page.setInputFiles('#fileInput', voiceMp4);
+  assert.match(await waitStatus(/Source chargée|Impossible/), /Source chargée \(Web Audio\)/);
+  step('Vidéo MP4 (AAC) décodée sans FFmpeg');
   await page.click('text=VOICE CUT');
   await page.click('#voiceSuggest');
   await waitStatus(/Seuil suggéré/);
