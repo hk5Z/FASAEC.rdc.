@@ -1,6 +1,6 @@
 {
   "name": "cadence-premiere",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "private": true,
   "description": "Panneau CEP pour Adobe Premiere Pro 2023 (23.x) : Beat Cut, Voice Cut, amélioration de voix, accélération, import, marqueurs.",
   "type": "commonjs",

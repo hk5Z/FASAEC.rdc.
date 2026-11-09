@@ -76,3 +76,28 @@ input[type=range] { width: 100%; accent-color: var(--accent); }
 .dialog { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; max-width: 420px; width: 100%; max-height: 90vh; overflow: auto; }
 .dialog p, .dialog ul { margin: 6px 0; line-height: 1.4; }
 .dialog ul { padding-left: 18px; max-height: 160px; overflow: auto; }
+
+/* ---- Beat Cut */
+.bc-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.bc-head h2 { margin: 0; }
+.bpm { font-size: 11px; font-weight: 700; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 1px 8px; white-space: nowrap; }
+.steps { margin: 6px 0 8px; padding-left: 18px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+h3.caps { font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.cadence { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: #1f1f21; border-radius: var(--radius); padding: 6px; margin-bottom: 8px; }
+.cad { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 2px; background: transparent; border-color: transparent; color: var(--muted); }
+.cad svg { width: 22px; height: 22px; padding: 6px; box-sizing: content-box; border-radius: 50%; border: 1px solid var(--line); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.cad b { font-size: 11px; letter-spacing: .5px; }
+.cad small { font-size: 9px; text-align: center; }
+.cad.active { color: var(--accent); }
+.cad.active svg { border-color: var(--accent); box-shadow: 0 0 10px rgba(79,179,169,.45); }
+.pill { margin: 8px auto 0; width: fit-content; max-width: 100%; text-align: center; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 12px; padding: 3px 10px; overflow-wrap: anywhere; }
+.pill.on { color: var(--accent); border-color: rgba(79,179,169,.6); }
+.pill.on::before { content: "● "; }
+.go { display: flex; flex-direction: column; align-items: center; gap: 6px; margin: 10px auto 4px; background: transparent; border: 0; color: var(--accent); font-weight: 700; }
+.go svg { width: 34px; height: 34px; padding: 16px; box-sizing: content-box; border-radius: 50%; border: 2px solid var(--accent); fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; box-shadow: 0 0 18px rgba(79,179,169,.35); }
+.go:hover:not(:disabled) svg { background: rgba(79,179,169,.12); }
+.legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; font-size: 11px; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.advanced { margin-top: 8px; }
+.advanced summary { cursor: pointer; color: var(--muted); font-size: 11px; }
+.advanced .grid { margin-top: 6px; }
