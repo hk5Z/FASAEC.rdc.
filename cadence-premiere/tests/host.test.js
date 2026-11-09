@@ -175,16 +175,6 @@ test('Rendu importé puis placé sur la première piste audio libre', () => {
   assert.ok(w.calls.some(c => c[0] === 'overwriteClip' && c[2] === 10));
 });
 
-test('Beat Cut (QE) : sauvegarde de la séquence AVANT les coupes, toutes les pistes', () => {
-  const w = makeWorld();
-  const r = w.call('razorAtTimes', { sequenceId: 'seq-1', times: [11, 12.5] });
-  assert.equal(r.ok, true, r.error);
-  const names = w.calls.map(c => c[0]);
-  assert.ok(names.indexOf('clone') < names.indexOf('razor'));
-  assert.equal(w.calls.filter(c => c[0] === 'razor').length, 2 * 3);
-  assert.ok(w.calls.some(c => c[0] === 'razor' && c[2] === '00:00:12:13|101'));
-});
-
 test('Accélérer (QE) : clip retrouvé malgré les vides, vitesse relue et vérifiée', () => {
   const w = makeWorld({ selection: undefined });
   w.seq.selection = [w.seq.videoTracks[0].clips[0]];

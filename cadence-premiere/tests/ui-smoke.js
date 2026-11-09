@@ -60,40 +60,59 @@ function makeTestWav(file, { voice = true, clicks = true } = {}) {
   step('6 boutons visibles, badge « mode navigateur »');
 
   await page.click('text=BEAT CUT');
-  await page.click('#beatAnalyze');
-  assert.match(await waitStatus(/Ouvrez d’abord/), /Ouvrez d’abord un fichier audio/);
-  step('Erreur lisible sans source');
+  await page.click('#beatGo');
+  assert.match(await waitStatus(/Aucun rush/), /Aucun rush sélectionné/);
+  step('Erreur lisible sans rush ni musique');
 
   await page.setInputFiles('#fileInput', wav);
   assert.match(await waitStatus(/Source chargée/), /WAV/);
   await page.screenshot({ path: path.join(OUT, 'ui-1-source.png') });
-  step('Fichier WAV chargé et forme d’onde affichée');
+  step('Musique WAV chargée et forme d’onde affichée');
 
-  await page.click('#beatAnalyze');
-  await waitStatus(/Analyse terminée/);
-  const beatTxt = await page.textContent('#beatResult');
-  assert.match(beatTxt, /temps proposés/);
-  const nBeats = Number(/^(\d+)/.exec(beatTxt)[1]);
-  assert.ok(nBeats >= 18 && nBeats <= 26, 'temps détectés : ' + nBeats);
-  await page.screenshot({ path: path.join(OUT, 'ui-2-beatcut.png') });
+  // Annuler : rien ne doit être appelé côté Premiere.
+  await page.click('#beatGo');
+  await waitModal(/Monter 3 rushes au rythme/);
+  const body = await page.textContent('#modalBody');
+  assert.match(body, /NORMAL/);
+  assert.match(body, /copie de sauvegarde/);
+  assert.match(await page.textContent('#bpmBadge'), /^1[12]\d BPM$/);
+  assert.match(await page.textContent('#rushPill'), /3 rushes sélectionnés \(V1, V2, V3\)/);
+  await page.screenshot({ path: path.join(OUT, 'ui-2-beatcut-confirmation.png') });
+  await page.click('#modalCancel');
+  await waitStatus(/Beat Cut annulé/);
+  assert.equal(await page.evaluate(() => window.CadenceBridge.mock.log.filter(c => c.fn === 'beatCutMulticam').length), 0);
+  const cutsShown = async () => Number(/^(\d+) coupes/.exec(await page.textContent('#beatResult'))[1]);
+  const normalCuts = await cutsShown();
+  assert.ok(normalCuts >= 10 && normalCuts <= 12, 'NORMAL (2 temps à 120 BPM ≈ 1 coupe/s sur 12 s) : ' + normalCuts);
+  await page.click('.cad[data-cadence="rapide"]');
+  const fastCuts = await cutsShown();
+  assert.ok(fastCuts >= 2 * normalCuts - 2, `RAPIDE ${fastCuts} vs NORMAL ${normalCuts}`);
+  await page.click('.cad[data-cadence="lent"]');
+  const slowCuts = await cutsShown();
+  assert.ok(slowCuts <= Math.ceil(normalCuts / 2) + 1, `LENT ${slowCuts}`);
+  assert.equal(await page.$$eval('#beatLegend span', s => s.length), 3);
+  await page.screenshot({ path: path.join(OUT, 'ui-3-beatcut-apercu.png') });
+  step(`Beat Cut : aperçu sans modification ; RAPIDE ${fastCuts} / NORMAL ${normalCuts} / LENT ${slowCuts} coupes`);
+
+  await page.click('.cad[data-cadence="normal"]');
+  await page.click('#beatGo');
+  await waitModal(/Monter 3 rushes/);
+  await page.click('#modalOk');
+  const done = await waitStatus(/Beat Cut terminé/);
+  const call = await page.evaluate(() => window.CadenceBridge.mock.log.filter(c => c.fn === 'beatCutMulticam').pop().args);
+  assert.deepEqual(call.tracks, [0, 1, 2]);
+  assert.equal(call.cuts.length, normalCuts);
+  assert.equal(call.segments.length, normalCuts + 1);
+  assert.equal(call.backup, true);
+  assert.equal(await markers(), normalCuts, 'un marqueur par coupe');
+  step('Beat Cut appliqué après confirmation : ' + done.split('\n')[0]);
+
   await page.click('#beatMarkers');
-  await waitModal(/Ajouter/);
+  await waitModal(/Ajouter \d+ marqueurs/);
   await page.click('#modalCancel');
   await waitStatus(/annulé/);
-  assert.equal(await markers(), 0, 'aucun marqueur sans confirmation');
-  await page.click('#beatMarkers');
-  await waitModal(/Ajouter/);
-  await page.click('#modalOk');
-  await waitStatus(/marqueurs ajoutés/);
-  assert.equal(await markers(), nBeats);
-  step(`Beat Cut : ${beatTxt.split('\n')[0]} ; annulation respectée ; marqueurs après confirmation`);
-
-  await page.click('#beatRazor');
-  await waitModal(/Couper toutes les pistes/);
-  assert.match(await page.textContent('#modalBody'), /copie de sauvegarde/);
-  await page.click('#modalCancel');
-  await waitStatus(/annulée/);
-  step('Coupe expérimentale : sauvegarde annoncée, annulation respectée');
+  assert.equal(await markers(), normalCuts, 'aucun marqueur sans confirmation');
+  step('Marqueurs seulement : annulation respectée');
 
   await page.setInputFiles('#fileInput', voiceMp4);
   assert.match(await waitStatus(/Source chargée|Impossible/), /Source chargée \(Web Audio\)/);
