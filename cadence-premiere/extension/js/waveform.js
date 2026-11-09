@@ -5,7 +5,7 @@
   function Waveform(canvas) {
     this.canvas = canvas;
     this.peaks = null; this.peaks2 = null; this.duration = 0;
-    this.beats = []; this.regions = []; this.playhead = null;
+    this.beats = []; this.regions = []; this.segments = []; this.playhead = null;
     this.onRegionClick = null;
     var self = this;
     if (root.ResizeObserver) new ResizeObserver(function () { self.draw(); }).observe(canvas);
@@ -56,6 +56,12 @@
       g.fillRect(Math.round(X(b.time)), 0, Math.max(1, dpr), h);
     });
     g.globalAlpha = 1;
+    // bande du bas : angle (piste) visible sur chaque segment du Beat Cut
+    var band = Math.max(4, Math.round(h * 0.08));
+    this.segments.forEach(function (s) {
+      g.fillStyle = s.color;
+      g.fillRect(X(s.start), h - band, Math.max(1, X(s.end) - X(s.start) - dpr), band);
+    });
     if (this.playhead != null) { g.fillStyle = '#fff'; g.fillRect(Math.round(X(this.playhead)), 0, Math.max(1, dpr), h); }
   };
 
