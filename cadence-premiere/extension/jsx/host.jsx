@@ -393,6 +393,139 @@ var cadence = (function () {
         return { requested: speed, results: results };
     }
 
+    // ------------------------------------------------------------ Beat Cut multicam
+    function frameSeconds(seq) {
+        var f = seq.getSettings().videoFrameRate;
+        return f && f.seconds > 0 ? f.seconds : 1 / 25;
+    }
+
+    function clipInfo(item, trackIndex) {
+        var path = '';
+        try { path = item.projectItem ? item.projectItem.getMediaPath() : ''; } catch (e) { path = ''; }
+        return {
+            name: item.name, mediaPath: path, mediaType: item.mediaType, trackIndex: trackIndex,
+            start: item.start.seconds, end: item.end.seconds, inPoint: item.inPoint.seconds, outPoint: item.outPoint.seconds,
+            speed: item.getSpeed(), projectItemNodeId: item.projectItem ? item.projectItem.nodeId : null
+        };
+    }
+
+    /** Rushes = clips vid\u00e9o s\u00e9lectionn\u00e9s (au moins 2 pistes). Musique = clip audio le plus pr\u00e9sent sous les rushes. */
+    function getBeatCutContext() {
+        var seq = activeSequence(), sel = seq.getSelection() || [], byTrack = {}, rushIds = {}, i, t, c, pos;
+        var r0 = Infinity, r1 = -Infinity, nRush = 0;
+        for (i = 0; i < sel.length; i++) {
+            if (sel[i].mediaType !== 'Video') { continue; }
+            pos = locateTrackItem(seq, sel[i]);
+            if (!pos) { continue; }
+            if (!byTrack[pos.trackIndex]) { byTrack[pos.trackIndex] = { index: pos.trackIndex, name: 'V' + (pos.trackIndex + 1), ranges: [], clips: [] }; }
+            byTrack[pos.trackIndex].ranges.push({ start: sel[i].start.seconds, end: sel[i].end.seconds });
+            byTrack[pos.trackIndex].clips.push(sel[i].name);
+            if (sel[i].projectItem) { rushIds[sel[i].projectItem.nodeId] = true; }
+            r0 = Math.min(r0, sel[i].start.seconds);
+            r1 = Math.max(r1, sel[i].end.seconds);
+            nRush++;
+        }
+        var tracks = [];
+        for (t in byTrack) { if (byTrack.hasOwnProperty(t)) { tracks.push(byTrack[t]); } }
+        tracks.sort(function (a, b) { return a.index - b.index; });
+        if (nRush === 0) {
+            fail('Aucun rush s\u00e9lectionn\u00e9 sur la timeline. Empilez vos rushes sur V1, V2, V3\u2026, placez la musique sur une piste audio, puis s\u00e9lectionnez les rushes.');
+        }
+        if (tracks.length < 2) {
+            fail('Beat Cut multicam : s\u00e9lectionnez des rushes sur au moins 2 pistes vid\u00e9o diff\u00e9rentes (ex. V1, V2, V3). ' + nRush + ' rush(s) s\u00e9lectionn\u00e9(s) sur une seule piste.');
+        }
+        var best = null, bestOverlap = 0, bestSelected = false;
+        for (t = 0; t < seq.audioTracks.numTracks; t++) {
+            var clips = seq.audioTracks[t].clips;
+            for (c = 0; c < clips.numItems; c++) {
+                var it = clips[c];
+                if (it.projectItem && rushIds[it.projectItem.nodeId]) { continue; } // son des rushes
+                var ov = Math.min(it.end.seconds, r1) - Math.max(it.start.seconds, r0);
+                var selected = false;
+                try { selected = !!it.isSelected(); } catch (e) { selected = false; }
+                if (ov <= 0) { continue; }
+                if ((selected && !bestSelected) || (selected === bestSelected && ov > bestOverlap)) {
+                    best = { item: it, track: t }; bestOverlap = ov; bestSelected = selected;
+                }
+            }
+        }
+        if (!best) {
+            fail('Aucune musique trouv\u00e9e sous les rushes : placez la musique sur une piste audio (A1\u2026) en face des rushes.');
+        }
+        var music = clipInfo(best.item, best.track);
+        if (!music.mediaPath) { fail('Le fichier de la musique \u00ab ' + music.name + ' \u00bb est introuvable (hors ligne ?).'); }
+        return {
+            sequence: { name: seq.name, id: String(seq.sequenceID) },
+            frame: frameSeconds(seq), tracks: tracks, rushCount: nRush,
+            range: { start: r0, end: r1 }, music: music
+        };
+    }
+
+    /**
+     * Ex\u00e9cute un plan Beat Cut : sauvegarde, coupe (QE razor) des pistes vid\u00e9o des rushes aux temps donn\u00e9s,
+     * puis retire (API officielle) les morceaux des pistes situ\u00e9es au-dessus de l'angle choisi.
+     * S\u00e9curit\u00e9 : un morceau n'est retir\u00e9 que s'il tient enti\u00e8rement dans son segment (donc si la coupe a eu lieu).
+     */
+    function beatCutMulticam(a) {
+        var seq = activeSequence(a.sequenceId), id = String(seq.sequenceID);
+        var tracks = a.tracks || [], cuts = a.cuts || [], segs = a.segments || [], i, k, t, c;
+        if (!isArray(tracks) || tracks.length < 2) { fail('Au moins 2 pistes vid\u00e9o sont n\u00e9cessaires.'); }
+        if (!isArray(cuts) || cuts.length === 0) { fail('Aucune coupe \u00e0 effectuer.'); }
+        if (cuts.length > 1000) { fail('Trop de coupes (' + cuts.length + ') : 1000 au maximum.'); }
+        for (i = 0; i < tracks.length; i++) {
+            if (tracks[i] < 0 || tracks[i] >= seq.videoTracks.numTracks) { fail('Piste vid\u00e9o V' + (tracks[i] + 1) + ' introuvable.'); }
+        }
+        var backup = false;
+        if (a.backup !== false) {
+            backup = !!seq.clone();
+            if (!backup) { fail('La copie de sauvegarde de la s\u00e9quence a \u00e9chou\u00e9 : rien n\'a \u00e9t\u00e9 modifi\u00e9.'); }
+            if (!app.project.activeSequence || String(app.project.activeSequence.sequenceID) !== id) {
+                fail('La s\u00e9quence active a chang\u00e9 apr\u00e8s la sauvegarde : rien n\'a \u00e9t\u00e9 coup\u00e9.');
+            }
+        }
+        var half = frameSeconds(seq) / 2, before = countClips(seq), razored = 0;
+        app.enableQE();
+        var qs = qe.project.getActiveSequence();
+        if (!qs) { fail('Le DOM QE ne trouve pas la s\u00e9quence active (copie de sauvegarde cr\u00e9\u00e9e, rien coup\u00e9).'); }
+        for (i = 0; i < tracks.length; i++) {
+            t = tracks[i];
+            for (k = 0; k < cuts.length; k++) {
+                var ct = num(cuts[k], 'temps de coupe'), clips = seq.videoTracks[t].clips, inside = false;
+                for (c = 0; c < clips.numItems; c++) {
+                    if (clips[c].start.seconds < ct - half && clips[c].end.seconds > ct + half) { inside = true; break; }
+                }
+                if (inside) { qs.getVideoTrackAt(t).razor(formatTimecode(seq, ct)); razored++; }
+            }
+        }
+        var toRemove = [], skipped = 0;
+        for (k = 0; k < segs.length; k++) {
+            if (segs[k].keep === null || segs[k].keep === undefined) { continue; }
+            var s0 = num(segs[k].start, 'd\u00e9but de segment'), s1 = num(segs[k].end, 'fin de segment');
+            for (i = 0; i < tracks.length; i++) {
+                t = tracks[i];
+                if (t <= segs[k].keep) { continue; }
+                var cl = seq.videoTracks[t].clips;
+                for (c = 0; c < cl.numItems; c++) {
+                    var st = cl[c].start.seconds, en = cl[c].end.seconds, mid = (st + en) / 2;
+                    if (mid <= s0 || mid >= s1) { continue; }
+                    if (st >= s0 - half && en <= s1 + half) { toRemove.push(cl[c]); } else { skipped++; }
+                }
+            }
+        }
+        for (i = 0; i < toRemove.length; i++) { toRemove[i].remove(false, false); }
+        var markers = 0;
+        if (a.markers) {
+            for (k = 0; k < cuts.length; k++) {
+                var m = seq.markers.createMarker(num(cuts[k], 'marqueur'));
+                if (m) { m.name = 'Beat'; m.comments = 'Cadence \u2013 Beat Cut'; markers++; }
+            }
+        }
+        return {
+            backup: backup, razored: razored, removed: toRemove.length, skipped: skipped, markers: markers,
+            clipsBefore: before, clipsAfter: countClips(seq), sequence: seq.name
+        };
+    }
+
     function wrap(fn) { return function (a) { return run(fn, a); }; }
 
     return {
@@ -408,6 +541,8 @@ var cadence = (function () {
         chooseFiles: wrap(chooseFiles),
         importFiles: wrap(importFiles),
         importRendered: wrap(importRendered),
-        setClipSpeed: wrap(setClipSpeed)
+        setClipSpeed: wrap(setClipSpeed),
+        getBeatCutContext: wrap(getBeatCutContext),
+        beatCutMulticam: wrap(beatCutMulticam)
     };
 }());
