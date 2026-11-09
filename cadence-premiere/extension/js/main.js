@@ -6,7 +6,7 @@
 
   var S = {
     env: Bridge.environment(), host: null, clip: null, audio: null, mono: null,
-    beats: null, regions: null, enhanced: null, stretched: null, tool: null, busy: false
+    beats: null, ctx: null, plan: null, cadence: 'normal', regions: null, enhanced: null, stretched: null, tool: null, busy: false
   };
   var wave = new root.CadenceWaveform($('wave'));
 
@@ -79,7 +79,7 @@
   function setSource(clip, audio) {
     A.player.stop();
     S.clip = clip; S.audio = audio; S.mono = D.mixToMono(audio.channels);
-    S.beats = null; S.regions = null; S.enhanced = null; S.stretched = null;
+    S.beats = null; S.plan = null; S.regions = null; S.enhanced = null; S.stretched = null;
     wave.beats = []; wave.regions = []; wave.mono2 = null; wave.peaks2 = null;
     wave.setAudio(S.mono, audio.sampleRate);
     $('waveEmpty').hidden = true;
@@ -134,7 +134,8 @@
   }
 
   function syncOverlay() {
-    wave.beats = S.tool === 'beat' && S.beats ? S.beats.beats : [];
+    var bo = S.tool === 'beat' ? planOverlay() : { beats: [], segments: [] };
+    wave.beats = bo.beats; wave.segments = bo.segments;
     wave.regions = S.tool === 'voice' && S.regions ? S.regions : [];
     wave.mono2 = S.tool === 'enhance' && S.enhanced ? D.mixToMono(S.enhanced.channels) : null;
     wave.peaks2 = null;
@@ -146,7 +147,7 @@
     var has = !!S.audio;
     $('btnPlay').disabled = !has; $('btnStop').disabled = !has;
     var nb = S.beats && S.beats.beats.length > 0;
-    $('beatPreview').disabled = !nb; $('beatMarkers').disabled = !nb; $('beatRazor').disabled = !nb;
+    $('beatPreview').disabled = !nb;
     var nr = S.regions && S.regions.some(function (r) { return r.enabled; });
     $('voicePreview').disabled = !nr; $('voiceMarkers').disabled = !nr;
     $('voiceSequence').disabled = !nr || (S.clip && S.clip.speed !== 1);
@@ -155,60 +156,144 @@
     $('enhancePlace').disabled = !!(S.clip && S.clip.speed !== 1);
   }
 
-  // ---- Beat Cut
-  function beatTimesInClip() {
-    var end = S.clip.end;
-    return S.beats.beats.map(function (b) { return { t: seqTime(b.time), s: b.strength }; })
-      .filter(function (b) { return b.t >= S.clip.start && b.t < end - 0.02; });
+  // ---- Beat Cut (montage multicam au rythme de la musique)
+  var TRACK_COLORS = ['#4fb3a9', '#f2b44c', '#9b7bf0', '#e0645c', '#5ea3e6', '#c9d36a'];
+
+  /** Temps séquence -> temps dans l'audio chargé (inverse de seqTime). */
+  function localTime(t) { return (t - S.clip.start) * (S.clip.speed || 1) + S.clip.inPoint - S.audio.offset; }
+
+  function detectMusicBeats() {
+    S.beats = D.detectBeats(S.mono, S.audio.sampleRate, {
+      mode: $('beatMode').value, sensitivity: ($('beatSens').value - 1) / 9,
+      minInterval: Number($('beatMin').value) || 0.25
+    });
+    $('bpmBadge').hidden = !S.beats.bpm;
+    $('bpmBadge').textContent = S.beats.bpm ? Math.round(S.beats.bpm) + ' BPM' : '';
   }
 
-  function analyzeBeats() {
-    return task('Analyse des temps forts', async function () {
-      await ensureSource();
-      S.beats = D.detectBeats(S.mono, S.audio.sampleRate, {
-        mode: $('beatMode').value, sensitivity: ($('beatSens').value - 1) / 9,
-        minInterval: Number($('beatMin').value) || 0.25, every: Number($('beatEvery').value) || 1
+  function cadence() { return D.CADENCES[S.cadence] || D.CADENCES.normal; }
+
+  /** Recalcule le plan (sans toucher à Premiere) et l'affiche sur la forme d'onde. */
+  function updatePlan() {
+    S.plan = null;
+    if (!S.ctx || !S.beats || !S.audio) { syncOverlay(); return; }
+    var beats = S.beats.beats.map(function (b) { return seqTime(b.time); });
+    S.plan = D.planMulticam({
+      beats: beats, range: S.ctx.range, tracks: S.ctx.tracks, every: cadence().every,
+      order: $('beatOrder').value, fps: 1 / S.ctx.frame, seed: 7
+    });
+    var counts = {};
+    S.plan.segments.forEach(function (s) { if (s.keep !== null) counts[s.keep] = (counts[s.keep] || 0) + 1; });
+    $('beatLegend').innerHTML = S.ctx.tracks.slice().reverse().map(function (t) {
+      return '<span><i style="background:' + TRACK_COLORS[t.index % TRACK_COLORS.length] + '"></i>' + t.name + ' · ' + (counts[t.index] || 0) + '</span>';
+    }).join('');
+    $('beatResult').textContent = S.plan.cuts.length
+      ? S.plan.cuts.length + ' coupes · ' + S.plan.segments.length + ' plans de ' + n2((S.ctx.range.end - S.ctx.range.start) / S.plan.segments.length, 2) + ' s en moyenne (cadence ' + cadence().label + ').'
+      : 'Aucun temps exploitable entre ' + fmt(S.ctx.range.start) + ' et ' + fmt(S.ctx.range.end) + ' : vérifiez que la musique couvre les rushes, ou essayez une autre cadence.';
+    syncOverlay();
+    refreshButtons();
+  }
+
+  function planOverlay() {
+    if (!S.plan) return { beats: S.beats ? S.beats.beats : [], segments: [] };
+    return {
+      beats: S.plan.cuts.map(function (t) { return { time: localTime(t), strength: 1 }; }),
+      segments: S.plan.segments.filter(function (s) { return s.keep !== null; }).map(function (s) {
+        return { start: localTime(s.start), end: localTime(s.end), color: TRACK_COLORS[s.keep % TRACK_COLORS.length] };
+      })
+    };
+  }
+
+  async function loadBeatCutContext() {
+    var ctx = await Bridge.call('getBeatCutContext'), m = ctx.music;
+    var same = S.clip && S.audio && S.clip.mediaPath === m.mediaPath && Math.abs(S.clip.start - m.start) < 1e-3 && Math.abs(S.clip.inPoint - m.inPoint) < 1e-3;
+    if (!same) {
+      if (!Bridge.inCEP) throw new Error('Mode navigateur : ouvrez d’abord le fichier de musique.');
+      status('Décodage de la musique « ' + m.name + ' »…', 'busy');
+      await nextFrame();
+      var audio = await A.loadPath(m.mediaPath, m.inPoint, m.outPoint, { ffmpegPath: $('ffmpegPath').value.trim() });
+      setSource({ name: m.name, mediaPath: m.mediaPath, mediaType: 'Audio', start: m.start, end: m.end, inPoint: m.inPoint, outPoint: m.outPoint,
+        speed: m.speed, reversed: false, projectItemNodeId: m.projectItemNodeId, selectionCount: 1, sequence: ctx.sequence }, audio);
+    } else {
+      S.clip.sequence = ctx.sequence;
+    }
+    S.ctx = ctx;
+    $('rushPill').textContent = ctx.rushCount + ' rush' + (ctx.rushCount > 1 ? 's' : '') + ' sélectionné' + (ctx.rushCount > 1 ? 's' : '') +
+      ' (' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ') · musique : ' + m.name;
+    $('rushPill').classList.add('on');
+    detectMusicBeats();
+    updatePlan();
+    return ctx;
+  }
+
+  function runBeatCut() {
+    return task('Beat Cut', async function () {
+      var ctx = await loadBeatCutContext();
+      if (!S.plan || !S.plan.cuts.length) throw new Error($('beatResult').textContent || 'Aucune coupe possible.');
+      var p = S.plan, removed = p.segments.reduce(function (n, s) {
+        return n + (s.keep === null ? 0 : ctx.tracks.filter(function (t) { return t.index > s.keep; }).length);
+      }, 0);
+      var ok = await confirmDialog('Monter ' + ctx.rushCount + ' rushes au rythme ?',
+        '<p>Cadence <b>' + cadence().label + '</b> (' + esc(cadence().hint) + ')' + (S.beats.bpm ? ', ≈ ' + Math.round(S.beats.bpm) + ' BPM' : '') +
+        ' : <b>' + p.cuts.length + ' coupes</b> sur ' + ctx.tracks.map(function (t) { return t.name; }).join(', ') + ' dans <b>' + esc(ctx.sequence.name) + '</b>.</p>' +
+        '<ul><li>Une <b>copie de sauvegarde</b> de la séquence est créée d’abord.</li>' +
+        '<li>Jusqu’à ' + removed + ' morceaux seront retirés des pistes du dessus pour alterner les angles (aperçu en couleur sur la forme d’onde).</li>' +
+        '<li>La musique et le son des rushes ne sont pas coupés. Les médias d’origine ne sont pas modifiés.</li>' +
+        '<li><b>Expérimental</b> : la coupe utilise une commande interne non documentée de Premiere ; chaque coupe est vérifiée et, si une seule manque, rien n’est retiré.</li></ul>',
+        'Sauvegarder puis monter');
+      if (!ok) return 'Beat Cut annulé : rien n’a été modifié.';
+      var r = await Bridge.call('beatCutMulticam', {
+        sequenceId: ctx.sequence.id, tracks: ctx.tracks.map(function (t) { return t.index; }),
+        cuts: p.cuts, segments: p.segments, markers: $('beatMarkersOpt').checked, backup: true
       });
-      syncOverlay();
-      var n = S.beats.beats.length;
-      $('beatResult').textContent = n
-        ? n + ' temps proposés' + (S.beats.bpm ? ' · tempo estimé ≈ ' + Math.round(S.beats.bpm) + ' BPM' : '') +
-          '\nPremier : ' + fmt(seqTime(S.beats.beats[0].time)) + ' (temps séquence). Écoutez avec les clics pour vérifier avant d’ajouter.'
-        : 'Aucun temps fort détecté : augmentez la sensibilité ou essayez la grille de tempo.';
-      return n ? 'Analyse terminée : rien n’a été modifié dans la séquence.' : 'Analyse terminée sans résultat.';
+      if (r.missing > 0) {
+        throw new Error('Premiere n’a pas effectué ' + r.missing + ' coupe(s) sur ' + r.razored + ' (commande interne non disponible ?). Aucun morceau n’a été retiré' +
+          (r.backup ? ' ; une copie de sauvegarde de la séquence se trouve dans le projet' : '') + '. Utilisez « Marqueurs seulement » puis coupez avec Ctrl+K.');
+      }
+      return 'Beat Cut terminé dans « ' + r.sequence + ' » : ' + r.razored + ' coupes, ' + r.removed + ' morceaux retirés' +
+        (r.markers ? ', ' + r.markers + ' marqueurs' : '') + '.' + (r.skipped ? '\n' + r.skipped + ' morceau(x) laissé(s) en place (hors segment).' : '') +
+        (r.backup ? '\nCopie de sauvegarde créée. Lancez la lecture pour vérifier.' : '') + simNote();
     });
   }
 
+  /** Marqueurs seulement : sur les rushes sélectionnés (avec musique) ou, à défaut, sur le clip musical sélectionné. */
   function addBeatMarkers() {
     return task('Ajout des marqueurs', async function () {
-      var seq = await requireSameSequence(), list = beatTimesInClip();
-      if (!list.length) throw new Error('Aucun temps ne tombe dans les limites du clip.');
-      var ok = await confirmDialog('Ajouter ' + list.length + ' marqueurs ?',
-        '<p>Des marqueurs de séquence nommés « Temps » seront ajoutés dans <b>' + esc(seq.name) + '</b>, de ' + fmt(list[0].t) + ' à ' + fmt(list[list.length - 1].t) + '.</p><p>Les clips ne sont pas modifiés.</p>', 'Ajouter');
+      var times;
+      try { await loadBeatCutContext(); } catch (e) {
+        if (!/rush|pistes vidéo/.test(e.message)) throw e;
+        S.ctx = null; S.plan = null;
+        await ensureSource();
+        detectMusicBeats();
+        syncOverlay();
+      }
+      if (S.plan) times = S.plan.cuts;
+      else {
+        var every = cadence().every;
+        times = S.beats.beats.map(function (b) { return seqTime(b.time); })
+          .filter(function (t, i) { return i % every === 0 && t >= S.clip.start && t < S.clip.end - 0.02; });
+      }
+      if (!times.length) throw new Error('Aucun temps fort détecté dans la musique.');
+      var seq = await requireSameSequence();
+      var ok = await confirmDialog('Ajouter ' + times.length + ' marqueurs ?',
+        '<p>Des marqueurs « Beat » (cadence ' + cadence().label + ') seront ajoutés dans <b>' + esc(seq.name) + '</b>, de ' + fmt(times[0]) + ' à ' + fmt(times[times.length - 1]) + '.</p><p>Aucun clip n’est coupé ni déplacé.</p>', 'Ajouter');
       if (!ok) return 'Ajout annulé : rien n’a été modifié.';
       var r = await Bridge.call('addMarkers', {
         sequenceId: seq.id,
-        markers: list.map(function (b) { return { time: b.t, name: 'Temps', comment: 'Cadence – Beat Cut (force ' + n2(b.s, 2) + ')' }; })
+        markers: times.map(function (t) { return { time: t, name: 'Beat', comment: 'Cadence – Beat Cut (' + cadence().label + ')' }; })
       });
       return r.created + ' marqueurs ajoutés à « ' + r.sequence + ' » (' + r.before + ' → ' + r.after + ').' + simNote();
     });
   }
 
-  function razorBeats() {
-    return task('Coupe aux temps', async function () {
-      var seq = await requireSameSequence(), list = beatTimesInClip().filter(function (b) { return b.t > S.clip.start + 0.05; });
-      if (!list.length) throw new Error('Aucun temps exploitable à l’intérieur du clip.');
-      var ok = await confirmDialog('Couper toutes les pistes à ' + list.length + ' endroits ?',
-        '<p><b>Expérimental</b> : utilise la commande interne non documentée « razor » (DOM QE) de Premiere.</p>' +
-        '<ul><li>Une copie de sauvegarde de <b>' + esc(seq.name) + '</b> est créée d’abord dans le projet.</li>' +
-        '<li>Toutes les pistes vidéo et audio de la séquence active sont coupées (les clips liés peuvent être déliés).</li>' +
-        '<li>Les médias d’origine ne sont pas modifiés.</li></ul>', 'Sauvegarder puis couper');
-      if (!ok) return 'Coupe annulée : rien n’a été modifié.';
-      var r = await Bridge.call('razorAtTimes', { sequenceId: seq.id, backup: true, times: list.map(function (b) { return b.t; }) });
-      var delta = r.clipsAfter - r.clipsBefore;
-      return (delta > 0 ? r.cuts + ' coupes demandées : ' + delta + ' nouveaux segments créés.' : 'Les coupes ont été envoyées mais aucun nouveau segment n’a été compté : vérifiez la timeline (commande non documentée).') +
-        (r.backup ? '\nUne copie de sauvegarde de la séquence a été créée.' : '') + simNote();
+  function selectCadence(name) {
+    S.cadence = name;
+    document.querySelectorAll('.cad').forEach(function (b) {
+      var on = b.dataset.cadence === name;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
     });
+    updatePlan();
   }
 
   // ---- Voice Cut
@@ -450,10 +535,12 @@
     document.querySelector('[data-action=markers]').addEventListener('click', clearMarkers);
 
     $('beatSens').addEventListener('input', function () { $('beatSensOut').textContent = this.value; });
-    $('beatAnalyze').addEventListener('click', analyzeBeats);
-    $('beatPreview').addEventListener('click', function () { play(S.audio.channels, { follow: true, clicks: S.beats.beats.map(function (b) { return b.time; }) }); });
+    $('beatGo').addEventListener('click', runBeatCut);
+    document.querySelectorAll('.cad').forEach(function (b) { b.addEventListener('click', function () { selectCadence(b.dataset.cadence); }); });
+    $('beatOrder').addEventListener('change', updatePlan);
+    ['beatMode', 'beatSens', 'beatMin'].forEach(function (id) { $(id).addEventListener('change', function () { if (S.audio && S.beats) { detectMusicBeats(); updatePlan(); } }); });
+    $('beatPreview').addEventListener('click', function () { play(S.audio.channels, { follow: true, clicks: planOverlay().beats.map(function (b) { return b.time; }) }); });
     $('beatMarkers').addEventListener('click', addBeatMarkers);
-    $('beatRazor').addEventListener('click', razorBeats);
 
     $('voiceThr').addEventListener('input', function () { $('voiceThrOut').textContent = this.value + ' dB'; });
     $('voiceSuggest').addEventListener('click', function () {
