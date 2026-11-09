@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cadence – Montage rapide</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true"></span><span>Cadence</span><small>montage rapide</small></div>
+    <span id="envBadge" class="badge" title="Environnement d’exécution">…</span>
+  </header>
+
+  <section class="source" aria-label="Source audio">
+    <div class="row">
+      <button id="btnLoadClip" class="ghost only-cep" type="button">Charger le clip sélectionné</button>
+      <label class="ghost file only-browser">Ouvrir un fichier<input type="file" id="fileInput" accept="audio/*,video/*,.wav"></label>
+      <span id="sourceInfo" class="muted grow">Aucune source chargée</span>
+    </div>
+    <div class="wave-wrap">
+      <canvas id="wave" aria-label="Forme d’onde"></canvas>
+      <div id="waveEmpty" class="wave-empty">Sélectionnez un clip dans la séquence puis « Charger le clip sélectionné »</div>
+    </div>
+    <div class="row transport">
+      <button id="btnPlay" type="button" disabled>▶ Écouter</button>
+      <button id="btnStop" type="button" disabled aria-label="Arrêter">■</button>
+      <span id="timeInfo" class="muted"></span>
+    </div>
+  </section>
+
+  <nav class="tools" aria-label="Fonctions">
+    <button class="tool" type="button" data-tool="beat">BEAT CUT</button>
+    <button class="tool" type="button" data-tool="voice">VOICE CUT</button>
+    <button class="tool" type="button" data-tool="enhance">AMÉLIORER LA VOIX</button>
+    <button class="tool" type="button" data-action="import">IMPORTER</button>
+    <button class="tool" type="button" data-tool="speed">ACCÉLÉRER</button>
+    <button class="tool danger" type="button" data-action="markers">EFFACER LES MARQUEURS</button>
+  </nav>
+
+  <!-- BEAT CUT -->
+  <section id="panel-beat" class="tool-panel" hidden>
+    <h2>Beat Cut <span class="muted">– temps forts d’une musique</span></h2>
+    <div class="grid">
+      <label>Mode
+        <select id="beatMode">
+          <option value="onsets">Attaques détectées</option>
+          <option value="grid">Grille de tempo (BPM)</option>
+        </select>
+      </label>
+      <label>Garder 1 temps sur
+        <select id="beatEvery"><option>1</option><option>2</option><option>4</option><option>8</option></select>
+      </label>
+      <label>Sensibilité <output id="beatSensOut">5</output>
+        <input type="range" id="beatSens" min="1" max="10" value="5">
+      </label>
+      <label>Écart minimal (s)
+        <input type="number" id="beatMin" min="0.05" max="4" step="0.05" value="0.25">
+      </label>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="beatAnalyze">Analyser</button>
+      <button type="button" id="beatPreview" disabled>Écouter avec clics</button>
+      <button type="button" id="beatMarkers" disabled>Ajouter les marqueurs…</button>
+      <button type="button" id="beatRazor" class="warn" disabled title="Utilise une commande Premiere non documentée">Couper aux temps (expérimental)…</button>
+    </div>
+    <p id="beatResult" class="result"></p>
+  </section>
+
+  <!-- VOICE CUT -->
+  <section id="panel-voice" class="tool-panel" hidden>
+    <h2>Voice Cut <span class="muted">– silences et pauses</span></h2>
+    <div class="grid">
+      <label>Seuil de silence <output id="voiceThrOut">-40 dB</output>
+        <input type="range" id="voiceThr" min="-70" max="-10" value="-40">
+      </label>
+      <label>&nbsp;<button type="button" id="voiceSuggest">Suggérer un seuil</button></label>
+      <label>Silence minimal (s)
+        <input type="number" id="voiceMin" min="0.1" max="5" step="0.05" value="0.5">
+      </label>
+      <label>Marge conservée (s)
+        <input type="number" id="voicePad" min="0" max="1" step="0.01" value="0.1">
+      </label>
+    </div>
+    <div class="actions">
+      <button type="button" class="primary" id="voiceAnalyze">Analyser</button>
+      <button type="button" id="voicePreview" disabled>Écouter sans les silences</button>
+      <button type="button" id="voiceMarkers" disabled>Marquer les silences…</button>
+      <button type="button" id="voiceSequence" disabled>Créer une séquence sans silences…</button>
+    </div>
+    <p id="voiceResult" class="result"></p>
+    <p class="hint">Cliquez une zone rouge de la forme d’onde (ou décochez-la ci-dessous) pour la conserver.</p>
+    <ol id="voiceList" class="regions"></ol>
+  </section>
+
+  <!-- AMÉLIORER LA VOIX -->
+  <section id="panel-enhance" class="tool-panel" hidden>
+    <h2>Améliorer la voix <span class="muted">– rendu dans un nouveau fichier</span></h2>
+    <div id="enhanceSteps" class="checks"></div>
+    <div class="actions">
+      <button type="button" class="primary" id="enhanceRun">Traiter (aperçu)</button>
+      <button type="button" id="enhanceListenA" disabled>Écouter l’original</button>
+      <button type="button" id="enhanceListenB" disabled>Écouter le résultat</button>
+    </div>
+    <label class="inline"><input type="checkbox" id="enhancePlace" checked> Placer le résultat sous le clip (piste audio libre)</label>
+    <div class="actions"><button type="button" id="enhanceSave" disabled>Enregistrer et importer…</button></div>
+    <p id="enhanceResult" class="result"></p>
+    <p class="hint">Non destructif : le média d’origine et le clip ne sont jamais modifiés. Le résultat est un WAV 24 bits dans « Cadence_Rendus » à côté du projet. Ce traitement n’égale pas un débruiteur à IA ou Adobe « Améliorer la voix » : vérifiez toujours à l’oreille.</p>
+  </section>
+
+  <!-- ACCÉLÉRER -->
+  <section id="panel-speed" class="tool-panel" hidden>
+    <h2>Accélérer</h2>
+    <label>Vitesse <output id="speedOut">×1,25</output>
+      <input type="range" id="speedVal" min="0.5" max="3" step="0.05" value="1.25">
+    </label>
+    <h3>A. Clip(s) sélectionné(s) dans Premiere <span class="tag">expérimental</span></h3>
+    <p class="hint">Utilise une commande interne non documentée d’Adobe (DOM « QE ») avec « conserver la hauteur audio » demandé. La vitesse obtenue est relue et vérifiée ; la conservation de la hauteur ne peut pas être vérifiée par script : contrôlez-la dans Clip &gt; Vitesse/Durée (Ctrl+R).</p>
+    <div class="actions"><button type="button" class="warn" id="speedApply">Appliquer au clip…</button></div>
+    <h3>B. Version audio accélérée, hauteur préservée (fiable)</h3>
+    <div class="actions">
+      <button type="button" class="primary" id="speedRender">Calculer</button>
+      <button type="button" id="speedListen" disabled>Écouter</button>
+      <button type="button" id="speedSave" disabled>Enregistrer et importer…</button>
+    </div>
+    <label class="inline"><input type="checkbox" id="speedPlace"> Placer au début du clip (piste audio libre)</label>
+    <p id="speedResult" class="result"></p>
+  </section>
+
+  <details class="settings">
+    <summary>Réglages et diagnostic</summary>
+    <label>Chemin de FFmpeg (facultatif, pour lire l’audio des vidéos)
+      <input type="text" id="ffmpegPath" placeholder="ex. C:\ffmpeg\bin\ffmpeg.exe">
+    </label>
+    <pre id="diag" class="diag"></pre>
+  </details>
+
+  <footer>
+    <div id="status" class="status" role="status" aria-live="polite">Prêt.</div>
+  </footer>
+
+  <div id="modal" class="modal" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <h2 id="modalTitle"></h2>
+      <div id="modalBody"></div>
+      <div class="actions end">
+        <button type="button" id="modalCancel">Annuler</button>
+        <button type="button" id="modalOk" class="primary">Confirmer</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/dsp.js"></script>
+  <script src="js/bridge.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/waveform.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
